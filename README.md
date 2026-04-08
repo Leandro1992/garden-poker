@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Poker Championship Manager
 
-## Getting Started
+Aplicacao web para registrar partidas presenciais de poker e acompanhar ranking anual acumulado.
 
-First, run the development server:
+## Stack
+- Next.js (App Router)
+- Firebase Authentication (Email/Senha)
+- Firebase Firestore
+- Vitest para testes das regras de pontuacao e ranking
 
+## Funcionalidades MVP
+- Cadastro e login por email/senha.
+- Controle por papel (`admin` e `player`).
+- Cadastro de campeonato anual.
+- Abertura de partidas por campeonato.
+- Selecao de participantes presentes na rodada.
+- Registro cronologico de eliminacoes.
+- Bonus de nocaute (+2 pontos por eliminacao).
+- Ranking da noite (partida) e ranking do ano (campeonato).
+- Importacao de pontuacao inicial para campeonato em andamento.
+
+## Configuracao
+1. Copie `.env.example` para `.env.local`.
+2. Preencha as variaveis Firebase com os dados do seu projeto.
+3. No Firebase Console, habilite `Authentication > Email/Password`.
+4. Crie o Firestore e publique `firestore.rules`.
+5. Configure pelo menos um email admin em `NEXT_PUBLIC_ADMIN_EMAILS`.
+
+## Rodando localmente
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Aplicacao: `http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Testes
+```bash
+npm run test
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Estrutura relevante
+- `src/components/poker-app.tsx`: UI principal e fluxo de uso.
+- `src/lib/data.ts`: operacoes do Firestore.
+- `src/lib/ranking.ts`: regras de pontuacao e ranking.
+- `src/lib/ranking.test.ts`: cobertura das regras criticas.
+- `firestore.rules`: regras de seguranca por papel.

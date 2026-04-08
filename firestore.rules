@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc(request.auth.uid).data.role == 'admin';
+    }
+
+    function isActiveUser() {
+      return signedIn() && userDoc(request.auth.uid).data.active == true;
+    }
+
+    match /users/{userId} {
+      allow read: if isActiveUser();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if isAdmin() || request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    match /championships/{championshipId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /matches/{matchId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /eliminations/{eventId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser();
+      allow update, delete: if isAdmin();
+    }
+
+    match /rankingSeeds/{seedId} {
+      allow read: if isActiveUser();
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+  }
+}

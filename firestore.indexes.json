@@ -1,0 +1,29 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "matches",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "championshipId", "order": "ASCENDING" },
+        { "fieldPath": "playedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eliminations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "matchId", "order": "ASCENDING" },
+        { "fieldPath": "eliminationOrder", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "rankingSeeds",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "championshipId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
