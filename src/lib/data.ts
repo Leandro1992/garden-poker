@@ -61,11 +61,12 @@ export async function upsertUserProfile(params: {
   await runTransaction(db, async (tx) => {
     const snap = await tx.get(userRef);
     if (!snap.exists()) {
+      const role = params.role ?? "player";
       tx.set(userRef, {
         email: params.email,
         name: params.name,
-        role: params.role ?? "player",
-        active: true,
+        role,
+        active: role === "admin",
         createdAt: serverTimestamp(),
       });
       return;
@@ -178,40 +179,40 @@ export async function createMatch(params: {
 }
 
 export async function listMatches(championshipId: string): Promise<Match[]> {
-  const snap = await getDocs(
-    query(matchesCol, where("championshipId", "==", championshipId), orderBy("playedAt", "desc")),
-  );
+  const snap = await getDocs(query(matchesCol, where("championshipId", "==", championshipId)));
 
-  return snap.docs.map((item) => {
-    const data = item.data();
-    return {
-      id: item.id,
-      championshipId: data.championshipId,
-      playedAt: data.playedAt,
-      participantIds: data.participantIds ?? [],
-      status: data.status,
-      createdBy: data.createdBy,
-      createdAt: Date.now(),
-    };
-  });
+  return snap.docs
+    .map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        championshipId: data.championshipId,
+        playedAt: data.playedAt,
+        participantIds: data.participantIds ?? [],
+        status: data.status,
+        createdBy: data.createdBy,
+        createdAt: Date.now(),
+      };
+    })
+    .sort((a, b) => b.playedAt.localeCompare(a.playedAt));
 }
 
 export async function listEliminations(matchId: string): Promise<EliminationEvent[]> {
-  const snap = await getDocs(
-    query(eliminationsCol, where("matchId", "==", matchId), orderBy("eliminationOrder", "asc")),
-  );
+  const snap = await getDocs(query(eliminationsCol, where("matchId", "==", matchId)));
 
-  return snap.docs.map((item) => {
-    const data = item.data();
-    return {
-      id: item.id,
-      matchId: data.matchId,
-      playerId: data.playerId,
-      eliminatedByUserId: data.eliminatedByUserId ?? null,
-      eliminationOrder: data.eliminationOrder,
-      createdAt: Date.now(),
-    };
-  });
+  return snap.docs
+    .map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        matchId: data.matchId,
+        playerId: data.playerId,
+        eliminatedByUserId: data.eliminatedByUserId ?? null,
+        eliminationOrder: data.eliminationOrder,
+        createdAt: Date.now(),
+      };
+    })
+    .sort((a, b) => a.eliminationOrder - b.eliminationOrder);
 }
 
 export async function registerElimination(params: {
@@ -224,7 +225,7 @@ export async function registerElimination(params: {
   );
 
   if (!already.empty) {
-    throw new Error("Player already eliminated in this match.");
+    throw new Error("Jogador ja foi eliminado nesta partida.");
   }
 
   const currentEliminations = await listEliminations(params.matchId);

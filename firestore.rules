@@ -18,7 +18,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isActiveUser();
+      allow read: if isAdmin() || isActiveUser() || (signedIn() && request.auth.uid == userId);
       allow create: if signedIn() && request.auth.uid == userId;
       allow update: if isAdmin() || request.auth.uid == userId;
       allow delete: if false;

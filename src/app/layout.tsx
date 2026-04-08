@@ -13,8 +13,8 @@ const sourceSerif = Source_Serif_4({
 });
 
 export const metadata: Metadata = {
-  title: "Poker Championship Manager",
-  description: "Web app for poker match registration and year ranking.",
+  title: "Gerenciador Garden Poker",
+  description: "Aplicacao web para registro de partidas e ranking anual.",
 };
 
 export default function RootLayout({

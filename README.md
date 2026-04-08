@@ -10,7 +10,9 @@ Aplicacao web para registrar partidas presenciais de poker e acompanhar ranking 
 
 ## Funcionalidades MVP
 - Cadastro e login por email/senha.
+- Cadastro e login com Google.
 - Controle por papel (`admin` e `player`).
+- Fluxo de aprovacao: novo jogador entra como pendente e aguarda aprovacao do admin.
 - Cadastro de campeonato anual.
 - Abertura de partidas por campeonato.
 - Selecao de participantes presentes na rodada.
@@ -23,8 +25,9 @@ Aplicacao web para registrar partidas presenciais de poker e acompanhar ranking 
 1. Copie `.env.example` para `.env.local`.
 2. Preencha as variaveis Firebase com os dados do seu projeto.
 3. No Firebase Console, habilite `Authentication > Email/Password`.
-4. Crie o Firestore e publique `firestore.rules`.
-5. Configure pelo menos um email admin em `NEXT_PUBLIC_ADMIN_EMAILS`.
+4. No Firebase Console, habilite `Authentication > Google`.
+5. Crie o Firestore e publique `firestore.rules`.
+6. Configure pelo menos um email admin em `NEXT_PUBLIC_ADMIN_EMAILS`.
 
 ## Rodando localmente
 ```bash
