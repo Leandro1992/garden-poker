@@ -19,9 +19,9 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isAdmin() || isActiveUser() || (signedIn() && request.auth.uid == userId);
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow create: if (signedIn() && request.auth.uid == userId) || isAdmin();
       allow update: if isAdmin() || request.auth.uid == userId;
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /championships/{championshipId} {
@@ -33,7 +33,7 @@ service cloud.firestore {
     match /matches/{matchId} {
       allow read: if isActiveUser();
       allow create, update: if isAdmin();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
 
     match /eliminations/{eventId} {

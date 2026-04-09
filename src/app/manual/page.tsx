@@ -36,6 +36,7 @@ export default function ManualPage() {
             <li>Selecione o campeonato ativo e a partida que deseja registrar.</li>
             <li>Registre eliminacoes em ordem real para manter o placar correto.</li>
             <li>Ao finalizar a rodada, feche a partida para consolidar pontos e ranking.</li>
+            <li>Para excluir partida, use o fluxo de confirmacao em duas etapas para evitar exclusao acidental.</li>
           </ol>
         </article>
 
@@ -43,7 +44,7 @@ export default function ManualPage() {
           <h2 className="text-xl font-semibold text-[#17346b]">2. Permissoes</h2>
           <div className="mt-3 space-y-3 text-sm text-slate-700">
             <p>
-              <strong>Administrador:</strong> cria campeonatos, abre/finaliza partidas, aprova participantes,
+              <strong>Administrador:</strong> cria campeonatos, abre/finaliza/exclui partidas, aprova participantes,
               altera papeis e importa pontuacao acumulada.
             </p>
             <p>
@@ -84,6 +85,16 @@ export default function ManualPage() {
               <li>Finalize a partida para confirmar os pontos.</li>
               <li>Valide o resultado na pagina Ranking.</li>
               <li>Use importacao inicial apenas para ajustes historicos autorizados.</li>
+            </ul>
+          </article>
+
+          <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-semibold text-[#10254f]">Exclusao de partida (admin)</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              <li>Selecione a partida no topo da tela de Partidas.</li>
+              <li>Clique em Excluir partida para entrar no modo de confirmacao.</li>
+              <li>Clique em Confirmar exclusao para concluir, ou em Cancelar para abortar.</li>
+              <li>A exclusao remove a partida e todos os nocautes registrados nela.</li>
             </ul>
           </article>
 

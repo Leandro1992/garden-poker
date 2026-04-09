@@ -12,6 +12,7 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
+import * as XLSX from "xlsx";
 
 import { auth } from "@/lib/firebase";
 import {
@@ -19,17 +20,18 @@ import {
   calculateMatchScores,
   createChampionship,
   createMatch,
+  deleteMatch,
   finishMatch,
   getUserProfile,
+  importParticipants,
   listChampionships,
   listEliminations,
   listMatches,
   listUsers,
   readRankingSeed,
   registerElimination,
-  seedInitialRanking,
-  setUserActive,
   setUserRole,
+  updateUserAccessByHistory,
   upsertUserProfile,
 } from "@/lib/data";
 import { AppHeader } from "@/components/app-header";
@@ -60,6 +62,8 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const [eliminations, setEliminations] = useState<EliminationEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<Flash>(null);
+  const [isDeleteMatchConfirmStep, setIsDeleteMatchConfirmStep] = useState(false);
+  const [isFinishMatchConfirmStep, setIsFinishMatchConfirmStep] = useState(false);
 
   const [authForm, setAuthForm] = useState({
     mode: "login" as "login" | "register",
@@ -75,7 +79,8 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const [matchFormDate, setMatchFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
   const [eliminationForm, setEliminationForm] = useState({ playerId: "", eliminatedByUserId: "" });
-  const [seedText, setSeedText] = useState("{}");
+  const [participantImportFile, setParticipantImportFile] = useState<File | null>(null);
+  const [isImportingParticipants, setIsImportingParticipants] = useState(false);
 
   const selectedChampionship = useMemo(
     () => championships.find((item) => item.id === selectedChampionshipId) ?? null,
@@ -94,7 +99,7 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const showMatchOps = view === "partidas";
   const showRanking = view === "dashboard" || view === "ranking";
   const showParticipants = view === "participantes";
-  const showSelectors = view === "partidas" || view === "ranking" || (view === "participantes" && isAdmin);
+  const showSelectors = view === "partidas" || view === "ranking";
 
   const selectedMatchRemaining = useMemo(() => {
     if (!selectedMatch) {
@@ -239,8 +244,16 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       merged.sort((a, b) => b.totalPoints - a.totalPoints);
       setRanking(merged);
 
-      if (!selectedMatchId && matchesSnap.length > 0) {
+      if (matchesSnap.length === 0) {
+        setSelectedMatchId("");
+        setEliminations([]);
+        setMatchScores([]);
+        setIsDeleteMatchConfirmStep(false);
+        setIsFinishMatchConfirmStep(false);
+      } else if (!selectedMatchId || !matchesSnap.some((item) => item.id === selectedMatchId)) {
         setSelectedMatchId(matchesSnap[0].id);
+        setIsDeleteMatchConfirmStep(false);
+        setIsFinishMatchConfirmStep(false);
       }
     },
     [selectedMatchId],
@@ -323,6 +336,11 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
     }
     void refreshMatchData(selectedMatchId);
   }, [selectedMatchId, refreshMatchData, usuarioPendente]);
+
+  useEffect(() => {
+    setIsDeleteMatchConfirmStep(false);
+    setIsFinishMatchConfirmStep(false);
+  }, [selectedMatchId]);
 
   async function handleAuthSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -450,11 +468,38 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       return;
     }
 
+    if (!isFinishMatchConfirmStep) {
+      setIsFinishMatchConfirmStep(true);
+      return;
+    }
+
     try {
       await finishMatch(selectedMatchId);
       await refreshChampionshipData(selectedChampionshipId);
       await refreshMatchData(selectedMatchId);
+      setIsFinishMatchConfirmStep(false);
       setFlash({ type: "success", message: "Partida finalizada." });
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function handleDeleteMatch() {
+    if (!profile || profile.role !== "admin" || !selectedMatchId || !selectedChampionshipId) {
+      return;
+    }
+
+    if (!isDeleteMatchConfirmStep) {
+      setIsDeleteMatchConfirmStep(true);
+      return;
+    }
+
+    try {
+      await deleteMatch(selectedMatchId);
+      await refreshChampionshipData(selectedChampionshipId);
+      setIsDeleteMatchConfirmStep(false);
+      setIsFinishMatchConfirmStep(false);
+      setFlash({ type: "success", message: "Partida excluida com sucesso." });
     } catch (error) {
       showError(error);
     }
@@ -480,31 +525,142 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
     }
 
     try {
-      await setUserActive(userId, active);
+      const result = await updateUserAccessByHistory(userId, active);
       await refreshCoreData(profile.id);
-      setFlash({ type: "success", message: active ? "Participante aprovado." : "Participante marcado como pendente." });
+      if (active) {
+        setFlash({ type: "success", message: "Participante aprovado." });
+        return;
+      }
+
+      if (result.action === "deleted") {
+        setFlash({ type: "success", message: "Jogador removido da base (sem historico de partidas)." });
+      } else {
+        setFlash({ type: "success", message: "Jogador inativado e sem acesso ao sistema." });
+      }
     } catch (error) {
       showError(error);
     }
   }
 
-  async function handleSeedImport(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedChampionshipId || !profile || profile.role !== "admin") {
+  async function handleRemoveUser(userId: string) {
+    if (!profile || profile.role !== "admin") {
+      return;
+    }
+
+    if (profile.id === userId) {
+      setFlash({ type: "error", message: "Voce nao pode remover sua propria conta." });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Deseja remover este usuario? Se houver historico, ele sera apenas inativado. Sem historico, sera excluido da base.",
+    );
+    if (!confirmed) {
       return;
     }
 
     try {
-      const parsed = JSON.parse(seedText) as Record<string, number>;
-      const rows = Object.entries(parsed).map(([userId, totalPoints]) => ({
-        userId,
-        totalPoints: Number(totalPoints),
-      }));
-      await seedInitialRanking({ championshipId: selectedChampionshipId, rows });
-      await refreshChampionshipData(selectedChampionshipId);
-      setFlash({ type: "success", message: "Pontuacao inicial importada." });
+      const result = await updateUserAccessByHistory(userId, false);
+      await refreshCoreData(profile.id);
+
+      if (result.action === "deleted") {
+        setFlash({ type: "success", message: "Usuario excluido da base (sem historico)." });
+      } else {
+        setFlash({ type: "success", message: "Usuario inativado com sucesso (historico preservado)." });
+      }
     } catch (error) {
       showError(error);
+    }
+  }
+
+  async function handleParticipantsImport(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!profile || profile.role !== "admin") {
+      return;
+    }
+
+    if (!participantImportFile) {
+      setFlash({ type: "error", message: "Selecione um arquivo .csv ou .xlsx para importar." });
+      return;
+    }
+
+    setIsImportingParticipants(true);
+    setFlash(null);
+
+    try {
+      const workbook = XLSX.read(await participantImportFile.arrayBuffer(), { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error("Arquivo sem planilha valida.");
+      }
+
+      const sheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+
+      if (rows.length === 0) {
+        throw new Error("Arquivo sem linhas para importar.");
+      }
+
+      const normalizeKey = (value: string) =>
+        value
+          .trim()
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "");
+
+      const mapRole = (value: string): "admin" | "player" => {
+        const normalized = normalizeKey(value);
+        if (normalized === "admin" || normalized === "administrador") {
+          return "admin";
+        }
+        if (normalized === "player" || normalized === "jogador") {
+          return "player";
+        }
+        throw new Error(`Funcao invalida: ${value}. Use admin ou player.`);
+      };
+
+      const parsedRows = rows.map((row, index) => {
+        const mapped = new Map<string, string>();
+        Object.entries(row).forEach(([key, value]) => {
+          mapped.set(normalizeKey(String(key)), String(value ?? "").trim());
+        });
+
+        const name = mapped.get("nome") ?? mapped.get("name") ?? "";
+        const email = mapped.get("email") ?? "";
+        const password = mapped.get("senha") ?? mapped.get("password") ?? "";
+        const roleRaw = mapped.get("funcao") ?? mapped.get("funcao") ?? mapped.get("role") ?? "";
+
+        if (!name || !email || !password || !roleRaw) {
+          throw new Error(`Linha ${index + 2}: preencha nome, email, senha e funcao.`);
+        }
+
+        return {
+          name,
+          email,
+          password,
+          role: mapRole(roleRaw),
+        };
+      });
+
+      const result = await importParticipants(parsedRows);
+      await refreshCoreData(profile.id);
+
+      if (result.failed === 0) {
+        setFlash({ type: "success", message: `${result.created} participante(s) importado(s) com sucesso.` });
+      } else {
+        const firstError = result.errors[0];
+        setFlash({
+          type: "error",
+          message: `Importacao concluida com ressalvas: ${result.created} criado(s), ${result.failed} falha(s). Exemplo: linha ${firstError?.row} (${firstError?.email}) - ${firstError?.reason}`,
+        });
+      }
+
+      setParticipantImportFile(null);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setIsImportingParticipants(false);
     }
   }
 
@@ -667,6 +823,8 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
               onChange={(event) => {
                 setSelectedChampionshipId(event.target.value);
                 setSelectedMatchId("");
+                setIsDeleteMatchConfirmStep(false);
+                setIsFinishMatchConfirmStep(false);
               }}
             >
               <option value="">Selecione</option>
@@ -683,7 +841,11 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
             <select
               className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
               value={selectedMatchId}
-              onChange={(event) => setSelectedMatchId(event.target.value)}
+              onChange={(event) => {
+                setSelectedMatchId(event.target.value);
+                setIsDeleteMatchConfirmStep(false);
+                setIsFinishMatchConfirmStep(false);
+              }}
             >
               <option value="">Selecione</option>
               {matches.map((item) => (
@@ -693,86 +855,6 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
               ))}
             </select>
           </label>
-        </section>
-      ) : null}
-
-      {isAdmin && showMatchOps ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Novo campeonato</h2>
-            <form onSubmit={handleCreateChampionship} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Nome
-                <input
-                  required
-                  value={championshipForm.name}
-                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Ano
-                <input
-                  required
-                  type="number"
-                  value={championshipForm.year}
-                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, year: Number(event.target.value) }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
-                Criar campeonato
-              </button>
-            </form>
-          </article>
-
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Nova partida</h2>
-            <form onSubmit={handleCreateMatch} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Data da partida
-                <input
-                  required
-                  type="date"
-                  value={matchFormDate}
-                  onChange={(event) => setMatchFormDate(event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <div>
-                <p className="mb-2 text-sm font-medium text-slate-700">Participantes</p>
-                <div className="flex max-h-36 flex-wrap gap-2 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
-                  {activePlayers.map((player) => {
-                    const checked = selectedParticipantIds.includes(player.id);
-                    return (
-                      <label
-                        key={player.id}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition ${
-                          checked
-                            ? "border-[#1c4e87] bg-[#d9e8f7] text-[#10254f]"
-                            : "border-slate-300 bg-white text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedParticipantIds((prev) =>
-                              checked ? prev.filter((id) => id !== player.id) : [...prev, player.id],
-                            )
-                          }
-                        />
-                        {player.name}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
-                Abrir partida
-              </button>
-            </form>
-          </article>
         </section>
       ) : null}
 
@@ -854,18 +936,60 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
             </div>
 
             {isAdmin ? (
-              <button
-                className="mt-3 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={handleFinishMatch}
-                disabled={!selectedMatchId || selectedMatch?.status === "finished"}
-              >
-                Finalizar partida
-              </button>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <button
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={handleFinishMatch}
+                  disabled={!selectedMatchId || selectedMatch?.status === "finished"}
+                >
+                  {isFinishMatchConfirmStep ? "Confirmar finalizacao" : "Finalizar partida"}
+                </button>
+                <button
+                  className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={handleDeleteMatch}
+                  disabled={!selectedMatchId}
+                >
+                  {isDeleteMatchConfirmStep ? "Confirmar exclusao" : "Excluir partida"}
+                </button>
+              </div>
+            ) : null}
+
+            {isAdmin && isDeleteMatchConfirmStep ? (
+              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-medium">Confirmacao necessaria</p>
+                <p className="mt-1">Clique em Confirmar exclusao para remover a partida e todos os nocautes registrados.</p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
+                  onClick={() => setIsDeleteMatchConfirmStep(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : null}
+
+            {isAdmin && isFinishMatchConfirmStep ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <p className="font-medium">Confirmacao necessaria</p>
+                <p className="mt-1">Clique em Confirmar finalizacao para fechar a partida e consolidar a pontuacao.</p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 transition hover:bg-amber-100"
+                  onClick={() => setIsFinishMatchConfirmStep(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
             ) : null}
           </article>
 
           <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Placar da partida</h2>
+            {selectedMatch && selectedMatch.status !== "finished" ? (
+              <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                A partida esta aberta. Pontos e posicoes finais serao aplicados somente apos a finalizacao.
+              </p>
+            ) : null}
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-left text-slate-600">
@@ -877,20 +1001,112 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {matchScores.map((score) => {
-                    const player = users.find((user) => user.id === score.userId);
-                    return (
-                      <tr key={score.userId} className="border-t border-slate-200">
-                        <td className="px-3 py-2">{player?.name ?? score.userId}</td>
-                        <td className="px-3 py-2">{score.position}</td>
-                        <td className="px-3 py-2">{score.knockouts}</td>
-                        <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
-                      </tr>
-                    );
-                  })}
+                  {matchScores.length > 0 ? (
+                    matchScores.map((score) => {
+                      const player = users.find((user) => user.id === score.userId);
+                      return (
+                        <tr key={score.userId} className="border-t border-slate-200">
+                          <td className="px-3 py-2">{player?.name ?? score.userId}</td>
+                          <td className="px-3 py-2">{score.position}</td>
+                          <td className="px-3 py-2">{score.knockouts}</td>
+                          <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr className="border-t border-slate-200">
+                      <td className="px-3 py-3 text-slate-500" colSpan={4}>
+                        {selectedMatch
+                          ? selectedMatch.status === "finished"
+                            ? "Sem pontuacao consolidada para esta partida."
+                            : "Aguardando finalizacao da partida para consolidar o placar final."
+                          : "Selecione uma partida para visualizar o placar."}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isAdmin && showMatchOps ? (
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Novo campeonato</h2>
+            <form onSubmit={handleCreateChampionship} className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Nome
+                <input
+                  required
+                  value={championshipForm.name}
+                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, name: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Ano
+                <input
+                  required
+                  type="number"
+                  value={championshipForm.year}
+                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, year: Number(event.target.value) }))}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
+                Criar campeonato
+              </button>
+            </form>
+          </article>
+
+          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Nova partida</h2>
+            <form onSubmit={handleCreateMatch} className="space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Data da partida
+                <input
+                  required
+                  type="date"
+                  value={matchFormDate}
+                  onChange={(event) => setMatchFormDate(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                />
+              </label>
+              <div>
+                <p className="mb-2 text-sm font-medium text-slate-700">Participantes</p>
+                <div className="flex max-h-36 flex-wrap gap-2 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                  {activePlayers.map((player) => {
+                    const checked = selectedParticipantIds.includes(player.id);
+                    return (
+                      <label
+                        key={player.id}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition ${
+                          checked
+                            ? "border-[#1c4e87] bg-[#d9e8f7] text-[#10254f]"
+                            : "border-slate-300 bg-white text-slate-700"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setSelectedParticipantIds((prev) =>
+                              checked ? prev.filter((id) => id !== player.id) : [...prev, player.id],
+                            )
+                          }
+                        />
+                        {player.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
+                Abrir partida
+              </button>
+            </form>
           </article>
         </section>
       ) : null}
@@ -977,11 +1193,21 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            checked={user.active}
-                            onChange={(event) => void handleActiveToggle(user.id, event.target.checked)}
-                          />
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={user.active}
+                              onChange={(event) => void handleActiveToggle(user.id, event.target.checked)}
+                            />
+                            <button
+                              type="button"
+                              className="rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100"
+                              onClick={() => void handleRemoveUser(user.id)}
+                              disabled={user.id === profile.id}
+                            >
+                              Remover
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1025,26 +1251,57 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                         />
                         Conta aprovada
                       </label>
+                      <button
+                        type="button"
+                        className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => void handleRemoveUser(user.id)}
+                        disabled={user.id === profile.id}
+                      >
+                        Remover usuario
+                      </button>
                     </div>
                   </article>
                 ))}
               </div>
 
               <h3 className="mb-2 mt-4 text-base font-semibold text-[#10254f]">Importar pontuacao acumulada</h3>
-              <form className="space-y-3" onSubmit={handleSeedImport}>
-                <label className="block text-sm font-medium text-slate-700">
-                  JSON no formato {`{"userId": pontos}`}
-                  <textarea
-                    rows={6}
-                    value={seedText}
-                    onChange={(event) => setSeedText(event.target.value)}
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                  />
-                </label>
-                <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
-                  Importar pontuacao inicial
-                </button>
-              </form>
+              <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="text-base font-semibold text-[#10254f]">Importar participantes por planilha</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Envie .csv ou .xlsx com colunas: nome, email, senha e funcao (admin ou player).
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <a
+                    href="/modelo-importacao-participantes.csv"
+                    download
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Baixar planilha base (CSV)
+                  </a>
+                </div>
+
+                <form className="mt-3 space-y-3" onSubmit={handleParticipantsImport}>
+                  <label className="block text-sm font-medium text-slate-700">
+                    Arquivo de importacao
+                    <input
+                      required
+                      type="file"
+                      accept=",.csv,.xlsx"
+                      onChange={(event) => setParticipantImportFile(event.target.files?.[0] ?? null)}
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                    />
+                  </label>
+
+                  <button
+                    className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f] disabled:cursor-not-allowed disabled:opacity-50"
+                    type="submit"
+                    disabled={isImportingParticipants}
+                  >
+                    {isImportingParticipants ? "Importando participantes..." : "Importar participantes"}
+                  </button>
+                </form>
+              </div>
+
             </article>
           </section>
         ) : (
