@@ -81,6 +81,8 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const [eliminationForm, setEliminationForm] = useState({ playerId: "", eliminatedByUserId: "" });
   const [participantImportFile, setParticipantImportFile] = useState<File | null>(null);
   const [isImportingParticipants, setIsImportingParticipants] = useState(false);
+  const [showCreateChampionshipForm, setShowCreateChampionshipForm] = useState(false);
+  const [partidasMode, setPartidasMode] = useState<"finished" | "new" | null>(null);
 
   const selectedChampionship = useMemo(
     () => championships.find((item) => item.id === selectedChampionshipId) ?? null,
@@ -99,7 +101,9 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const showMatchOps = view === "partidas";
   const showRanking = view === "dashboard" || view === "ranking";
   const showParticipants = view === "participantes";
-  const showSelectors = view === "partidas" || view === "ranking";
+  const showRankingSelector = showRanking;
+  const openMatches = useMemo(() => matches.filter((item) => item.status === "open"), [matches]);
+  const finishedMatches = useMemo(() => matches.filter((item) => item.status === "finished"), [matches]);
 
   const selectedMatchRemaining = useMemo(() => {
     if (!selectedMatch) {
@@ -342,6 +346,17 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
     setIsFinishMatchConfirmStep(false);
   }, [selectedMatchId]);
 
+  useEffect(() => {
+    if (!showMatchOps) {
+      return;
+    }
+
+    setPartidasMode(null);
+    setSelectedMatchId("");
+    setIsDeleteMatchConfirmStep(false);
+    setIsFinishMatchConfirmStep(false);
+  }, [selectedChampionshipId, showMatchOps]);
+
   async function handleAuthSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFlash(null);
@@ -408,6 +423,7 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       });
       await refreshCoreData(profile.id);
       setSelectedChampionshipId(id);
+      setShowCreateChampionshipForm(false);
       setFlash({ type: "success", message: "Campeonato criado com sucesso." });
     } catch (error) {
       showError(error);
@@ -434,6 +450,7 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       });
       await refreshChampionshipData(selectedChampionshipId);
       setSelectedMatchId(matchId);
+      setPartidasMode("new");
       setFlash({ type: "success", message: "Partida aberta." });
     } catch (error) {
       showError(error);
@@ -813,8 +830,8 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
         </p>
       ) : null}
 
-      {showSelectors ? (
-        <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2">
+      {showRankingSelector ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <label className="text-sm font-medium text-slate-700">
             Campeonato
             <select
@@ -822,9 +839,6 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
               value={selectedChampionshipId}
               onChange={(event) => {
                 setSelectedChampionshipId(event.target.value);
-                setSelectedMatchId("");
-                setIsDeleteMatchConfirmStep(false);
-                setIsFinishMatchConfirmStep(false);
               }}
             >
               <option value="">Selecione</option>
@@ -835,280 +849,451 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
               ))}
             </select>
           </label>
-
-          <label className="text-sm font-medium text-slate-700">
-            Partida
-            <select
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-              value={selectedMatchId}
-              onChange={(event) => {
-                setSelectedMatchId(event.target.value);
-                setIsDeleteMatchConfirmStep(false);
-                setIsFinishMatchConfirmStep(false);
-              }}
-            >
-              <option value="">Selecione</option>
-              {matches.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.playedAt} - {item.status === "finished" ? "finalizada" : "aberta"}
-                </option>
-              ))}
-            </select>
-          </label>
         </section>
       ) : null}
 
       {showMatchOps ? (
-        <section className="grid gap-4 xl:grid-cols-2">
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Eventos da rodada</h2>
-            <form onSubmit={handleRegisterElimination} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Jogador eliminado
-                <select
-                  required
-                  value={eliminationForm.playerId}
-                  onChange={(event) => setEliminationForm((prev) => ({ ...prev, playerId: event.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+        <>
+          <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-[#10254f]">Campeonatos</h2>
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  onClick={() => setShowCreateChampionshipForm((prev) => !prev)}
                 >
-                  <option value="">Selecione</option>
-                  {selectedMatchRemaining.map((player) => (
-                    <option key={player.id} value={player.id}>
-                      {player.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  {showCreateChampionshipForm ? "Cancelar" : "Novo campeonato"}
+                </button>
+              ) : null}
+            </div>
 
-              <label className="block text-sm font-medium text-slate-700">
-                Quem eliminou
-                <select
-                  value={eliminationForm.eliminatedByUserId}
-                  onChange={(event) =>
-                    setEliminationForm((prev) => ({
-                      ...prev,
-                      eliminatedByUserId: event.target.value,
-                    }))
-                  }
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                >
-                  <option value="">Sem nocaute / desconhecido</option>
-                  {selectedMatchRemaining.map((player) => (
-                    <option key={player.id} value={player.id}>
-                      {player.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <button
-                className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f] disabled:cursor-not-allowed disabled:bg-slate-300"
-                type="submit"
-                disabled={!selectedMatchId || selectedMatch?.status === "finished"}
+            <label className="mt-3 block text-sm font-medium text-slate-700">
+              Selecione o campeonato
+              <select
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                value={selectedChampionshipId}
+                onChange={(event) => {
+                  setSelectedChampionshipId(event.target.value);
+                }}
               >
-                Registrar eliminacao
-              </button>
-            </form>
+                <option value="">Selecione</option>
+                {championships.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.year} - {item.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-left text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Ordem</th>
-                    <th className="px-3 py-2">Jogador</th>
-                    <th className="px-3 py-2">Eliminador</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {eliminations.map((item) => {
-                    const player = users.find((user) => user.id === item.playerId);
-                    const eliminator = users.find((user) => user.id === item.eliminatedByUserId);
-                    return (
-                      <tr key={item.id} className="border-t border-slate-200">
-                        <td className="px-3 py-2">{item.eliminationOrder}</td>
-                        <td className="px-3 py-2">{player?.name ?? item.playerId}</td>
-                        <td className="px-3 py-2">{eliminator?.name ?? "-"}</td>
+            {isAdmin && showCreateChampionshipForm ? (
+              <form onSubmit={handleCreateChampionship} className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3 md:items-end">
+                <label className="block text-sm font-medium text-slate-700 md:col-span-2">
+                  Nome
+                  <input
+                    required
+                    value={championshipForm.name}
+                    onChange={(event) => setChampionshipForm((prev) => ({ ...prev, name: event.target.value }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                  />
+                </label>
+                <label className="block text-sm font-medium text-slate-700">
+                  Ano
+                  <input
+                    required
+                    type="number"
+                    value={championshipForm.year}
+                    onChange={(event) => setChampionshipForm((prev) => ({ ...prev, year: Number(event.target.value) }))}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                  />
+                </label>
+                <button
+                  className="md:col-span-3 rounded-xl bg-[#17346b] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-[#10254f]"
+                  type="submit"
+                >
+                  Criar campeonato
+                </button>
+              </form>
+            ) : null}
+          </section>
+
+          {selectedChampionship ? (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="text-base font-semibold text-[#10254f]">Escolha uma acao</h3>
+              <p className="mt-1 text-sm text-slate-600">{selectedChampionship.year} - {selectedChampionship.name}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    partidasMode === "finished"
+                      ? "bg-[#17346b] text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  onClick={() => {
+                    setPartidasMode("finished");
+                    const fallback = finishedMatches[0]?.id ?? "";
+                    const selectedIsFinished = finishedMatches.some((item) => item.id === selectedMatchId);
+                    setSelectedMatchId(selectedIsFinished ? selectedMatchId : fallback);
+                  }}
+                >
+                  Ver partidas finalizadas
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                    partidasMode === "new"
+                      ? "bg-[#17346b] text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  onClick={() => {
+                    setPartidasMode("new");
+                    const fallback = openMatches[0]?.id ?? "";
+                    const selectedIsOpen = openMatches.some((item) => item.id === selectedMatchId);
+                    setSelectedMatchId(selectedIsOpen ? selectedMatchId : fallback);
+                  }}
+                >
+                  Iniciar nova partida
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+              Selecione um campeonato para continuar.
+            </section>
+          )}
+
+          {selectedChampionship && partidasMode === "finished" ? (
+            <section className="grid gap-4 xl:grid-cols-2">
+              <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Partidas finalizadas</h2>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2">Data</th>
+                        <th className="px-3 py-2">Participantes</th>
+                        <th className="px-3 py-2">Acao</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {isAdmin ? (
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <button
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={handleFinishMatch}
-                  disabled={!selectedMatchId || selectedMatch?.status === "finished"}
-                >
-                  {isFinishMatchConfirmStep ? "Confirmar finalizacao" : "Finalizar partida"}
-                </button>
-                <button
-                  className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  onClick={handleDeleteMatch}
-                  disabled={!selectedMatchId}
-                >
-                  {isDeleteMatchConfirmStep ? "Confirmar exclusao" : "Excluir partida"}
-                </button>
-              </div>
-            ) : null}
-
-            {isAdmin && isDeleteMatchConfirmStep ? (
-              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                <p className="font-medium">Confirmacao necessaria</p>
-                <p className="mt-1">Clique em Confirmar exclusao para remover a partida e todos os nocautes registrados.</p>
-                <button
-                  type="button"
-                  className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
-                  onClick={() => setIsDeleteMatchConfirmStep(false)}
-                >
-                  Cancelar
-                </button>
-              </div>
-            ) : null}
-
-            {isAdmin && isFinishMatchConfirmStep ? (
-              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                <p className="font-medium">Confirmacao necessaria</p>
-                <p className="mt-1">Clique em Confirmar finalizacao para fechar a partida e consolidar a pontuacao.</p>
-                <button
-                  type="button"
-                  className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 transition hover:bg-amber-100"
-                  onClick={() => setIsFinishMatchConfirmStep(false)}
-                >
-                  Cancelar
-                </button>
-              </div>
-            ) : null}
-          </article>
-
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Placar da partida</h2>
-            {selectedMatch && selectedMatch.status !== "finished" ? (
-              <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                A partida esta aberta. Pontos e posicoes finais serao aplicados somente apos a finalizacao.
-              </p>
-            ) : null}
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-left text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Jogador</th>
-                    <th className="px-3 py-2">Posicao</th>
-                    <th className="px-3 py-2">Nocautes</th>
-                    <th className="px-3 py-2">Pontos</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {matchScores.length > 0 ? (
-                    matchScores.map((score) => {
-                      const player = users.find((user) => user.id === score.userId);
-                      return (
-                        <tr key={score.userId} className="border-t border-slate-200">
-                          <td className="px-3 py-2">{player?.name ?? score.userId}</td>
-                          <td className="px-3 py-2">{score.position}</td>
-                          <td className="px-3 py-2">{score.knockouts}</td>
-                          <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                    </thead>
+                    <tbody>
+                      {finishedMatches.length > 0 ? (
+                        finishedMatches.map((item) => (
+                          <tr key={item.id} className="border-t border-slate-200">
+                            <td className="px-3 py-2">{item.playedAt}</td>
+                            <td className="px-3 py-2">{item.participantIds.length}</td>
+                            <td className="px-3 py-2">
+                              <button
+                                type="button"
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                onClick={() => setSelectedMatchId(item.id)}
+                              >
+                                Ver pontuacoes
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr className="border-t border-slate-200">
+                          <td className="px-3 py-3 text-slate-500" colSpan={3}>
+                            Ainda nao ha partidas finalizadas neste campeonato.
+                          </td>
                         </tr>
-                      );
-                    })
-                  ) : (
-                    <tr className="border-t border-slate-200">
-                      <td className="px-3 py-3 text-slate-500" colSpan={4}>
-                        {selectedMatch
-                          ? selectedMatch.status === "finished"
-                            ? "Sem pontuacao consolidada para esta partida."
-                            : "Aguardando finalizacao da partida para consolidar o placar final."
-                          : "Selecione uma partida para visualizar o placar."}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        </section>
-      ) : null}
-
-      {isAdmin && showMatchOps ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Novo campeonato</h2>
-            <form onSubmit={handleCreateChampionship} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Nome
-                <input
-                  required
-                  value={championshipForm.name}
-                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <label className="block text-sm font-medium text-slate-700">
-                Ano
-                <input
-                  required
-                  type="number"
-                  value={championshipForm.year}
-                  onChange={(event) => setChampionshipForm((prev) => ({ ...prev, year: Number(event.target.value) }))}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
-                Criar campeonato
-              </button>
-            </form>
-          </article>
-
-          <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Nova partida</h2>
-            <form onSubmit={handleCreateMatch} className="space-y-3">
-              <label className="block text-sm font-medium text-slate-700">
-                Data da partida
-                <input
-                  required
-                  type="date"
-                  value={matchFormDate}
-                  onChange={(event) => setMatchFormDate(event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                />
-              </label>
-              <div>
-                <p className="mb-2 text-sm font-medium text-slate-700">Participantes</p>
-                <div className="flex max-h-36 flex-wrap gap-2 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
-                  {activePlayers.map((player) => {
-                    const checked = selectedParticipantIds.includes(player.id);
-                    return (
-                      <label
-                        key={player.id}
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition ${
-                          checked
-                            ? "border-[#1c4e87] bg-[#d9e8f7] text-[#10254f]"
-                            : "border-slate-300 bg-white text-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setSelectedParticipantIds((prev) =>
-                              checked ? prev.filter((id) => id !== player.id) : [...prev, player.id],
-                            )
-                          }
-                        />
-                        {player.name}
-                      </label>
-                    );
-                  })}
+                      )}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
-              <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
-                Abrir partida
-              </button>
-            </form>
-          </article>
-        </section>
+              </article>
+
+              <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Pontuacoes da partida</h2>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-slate-600">
+                      <tr>
+                        <th className="px-3 py-2">Jogador</th>
+                        <th className="px-3 py-2">Posicao</th>
+                        <th className="px-3 py-2">Nocautes</th>
+                        <th className="px-3 py-2">Pontos</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {matchScores.length > 0 ? (
+                        matchScores.map((score) => {
+                          const player = users.find((user) => user.id === score.userId);
+                          return (
+                            <tr key={score.userId} className="border-t border-slate-200">
+                              <td className="px-3 py-2">{player?.name ?? score.userId}</td>
+                              <td className="px-3 py-2">{score.position}</td>
+                              <td className="px-3 py-2">{score.knockouts}</td>
+                              <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr className="border-t border-slate-200">
+                          <td className="px-3 py-3 text-slate-500" colSpan={4}>
+                            Selecione uma partida finalizada para visualizar as pontuacoes.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </section>
+          ) : null}
+
+          {selectedChampionship && partidasMode === "new" ? (
+            <>
+              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Partida em andamento</h2>
+                <label className="block text-sm font-medium text-slate-700">
+                  Selecione a partida aberta
+                  <select
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                    value={selectedMatchId}
+                    onChange={(event) => {
+                      setSelectedMatchId(event.target.value);
+                      setIsDeleteMatchConfirmStep(false);
+                      setIsFinishMatchConfirmStep(false);
+                    }}
+                  >
+                    <option value="">Selecione</option>
+                    {openMatches.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.playedAt}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {openMatches.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-500">Nao ha partidas abertas neste campeonato.</p>
+                ) : null}
+              </section>
+
+              {isAdmin ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Nova partida</h2>
+                  <form onSubmit={handleCreateMatch} className="space-y-3">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Data da partida
+                      <input
+                        required
+                        type="date"
+                        value={matchFormDate}
+                        onChange={(event) => setMatchFormDate(event.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                      />
+                    </label>
+                    <div>
+                      <p className="mb-2 text-sm font-medium text-slate-700">Participantes</p>
+                      <div className="flex max-h-36 flex-wrap gap-2 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2">
+                        {activePlayers.map((player) => {
+                          const checked = selectedParticipantIds.includes(player.id);
+                          return (
+                            <label
+                              key={player.id}
+                              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition ${
+                                checked
+                                  ? "border-[#1c4e87] bg-[#d9e8f7] text-[#10254f]"
+                                  : "border-slate-300 bg-white text-slate-700"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() =>
+                                  setSelectedParticipantIds((prev) =>
+                                    checked ? prev.filter((id) => id !== player.id) : [...prev, player.id],
+                                  )
+                                }
+                              />
+                              {player.name}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <button className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f]" type="submit">
+                      Abrir partida
+                    </button>
+                  </form>
+                </section>
+              ) : null}
+
+              <section className="grid gap-4 xl:grid-cols-2">
+                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Eventos da rodada</h2>
+                  <form onSubmit={handleRegisterElimination} className="space-y-3">
+                    <label className="block text-sm font-medium text-slate-700">
+                      Jogador eliminado
+                      <select
+                        required
+                        value={eliminationForm.playerId}
+                        onChange={(event) => setEliminationForm((prev) => ({ ...prev, playerId: event.target.value }))}
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                      >
+                        <option value="">Selecione</option>
+                        {selectedMatchRemaining.map((player) => (
+                          <option key={player.id} value={player.id}>
+                            {player.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block text-sm font-medium text-slate-700">
+                      Quem eliminou
+                      <select
+                        value={eliminationForm.eliminatedByUserId}
+                        onChange={(event) =>
+                          setEliminationForm((prev) => ({
+                            ...prev,
+                            eliminatedByUserId: event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                      >
+                        <option value="">Sem nocaute / desconhecido</option>
+                        {selectedMatchRemaining.map((player) => (
+                          <option key={player.id} value={player.id}>
+                            {player.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <button
+                      className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f] disabled:cursor-not-allowed disabled:bg-slate-300"
+                      type="submit"
+                      disabled={!selectedMatchId || selectedMatch?.status === "finished"}
+                    >
+                      Registrar eliminacao
+                    </button>
+                  </form>
+
+                  <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 text-left text-slate-600">
+                        <tr>
+                          <th className="px-3 py-2">Ordem</th>
+                          <th className="px-3 py-2">Jogador</th>
+                          <th className="px-3 py-2">Eliminador</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {eliminations.map((item) => {
+                          const player = users.find((user) => user.id === item.playerId);
+                          const eliminator = users.find((user) => user.id === item.eliminatedByUserId);
+                          return (
+                            <tr key={item.id} className="border-t border-slate-200">
+                              <td className="px-3 py-2">{item.eliminationOrder}</td>
+                              <td className="px-3 py-2">{player?.name ?? item.playerId}</td>
+                              <td className="px-3 py-2">{eliminator?.name ?? "-"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {isAdmin ? (
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      <button
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={handleFinishMatch}
+                        disabled={!selectedMatchId || selectedMatch?.status === "finished"}
+                      >
+                        {isFinishMatchConfirmStep ? "Confirmar finalizacao" : "Finalizar partida"}
+                      </button>
+                      <button
+                        className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={handleDeleteMatch}
+                        disabled={!selectedMatchId}
+                      >
+                        {isDeleteMatchConfirmStep ? "Confirmar exclusao" : "Excluir partida"}
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {isAdmin && isDeleteMatchConfirmStep ? (
+                    <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                      <p className="font-medium">Confirmacao necessaria</p>
+                      <p className="mt-1">Clique em Confirmar exclusao para remover a partida e todos os nocautes registrados.</p>
+                      <button
+                        type="button"
+                        className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
+                        onClick={() => setIsDeleteMatchConfirmStep(false)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {isAdmin && isFinishMatchConfirmStep ? (
+                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                      <p className="font-medium">Confirmacao necessaria</p>
+                      <p className="mt-1">Clique em Confirmar finalizacao para fechar a partida e consolidar a pontuacao.</p>
+                      <button
+                        type="button"
+                        className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 transition hover:bg-amber-100"
+                        onClick={() => setIsFinishMatchConfirmStep(false)}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+
+                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Placar da partida</h2>
+                  {selectedMatch && selectedMatch.status !== "finished" ? (
+                    <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      A partida esta aberta. Pontos e posicoes finais serao aplicados somente apos a finalizacao.
+                    </p>
+                  ) : null}
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-slate-50 text-left text-slate-600">
+                        <tr>
+                          <th className="px-3 py-2">Jogador</th>
+                          <th className="px-3 py-2">Posicao</th>
+                          <th className="px-3 py-2">Nocautes</th>
+                          <th className="px-3 py-2">Pontos</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matchScores.length > 0 ? (
+                          matchScores.map((score) => {
+                            const player = users.find((user) => user.id === score.userId);
+                            return (
+                              <tr key={score.userId} className="border-t border-slate-200">
+                                <td className="px-3 py-2">{player?.name ?? score.userId}</td>
+                                <td className="px-3 py-2">{score.position}</td>
+                                <td className="px-3 py-2">{score.knockouts}</td>
+                                <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr className="border-t border-slate-200">
+                            <td className="px-3 py-3 text-slate-500" colSpan={4}>
+                              {selectedMatch
+                                ? selectedMatch.status === "finished"
+                                  ? "Sem pontuacao consolidada para esta partida."
+                                  : "Aguardando finalizacao da partida para consolidar o placar final."
+                                : "Selecione uma partida aberta para visualizar o placar."}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+            </>
+          ) : null}
+        </>
       ) : null}
 
       {showRanking ? (

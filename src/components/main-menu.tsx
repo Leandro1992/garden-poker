@@ -8,8 +8,8 @@ type MainMenuProps = {
 };
 
 const menuItems = [
-  { href: "/", label: "Dashboard", adminOnly: false },
   { href: "/partidas", label: "Partidas", adminOnly: false },
+  { href: "/", label: "Dashboard", adminOnly: false },
   { href: "/ranking", label: "Ranking", adminOnly: false },
   { href: "/participantes", label: "Participantes", adminOnly: true },
   { href: "/manual", label: "Manual", adminOnly: false },

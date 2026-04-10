@@ -1,5 +1,5 @@
 import { PokerApp } from "@/components/poker-app";
 
 export default function Home() {
-  return <PokerApp view="dashboard" />;
+  return <PokerApp view="partidas" />;
 }
