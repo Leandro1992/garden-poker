@@ -35,3 +35,62 @@ h3 {
 * {
   box-sizing: border-box;
 }
+
+@keyframes tableFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.poker-table-enter {
+  animation: tableFadeIn 260ms ease-out;
+}
+
+.poker-table-shell {
+  background-image: linear-gradient(145deg, #4c2f1b, #2f1c10);
+}
+
+.poker-felt {
+  background:
+    radial-gradient(circle at 24% 22%, rgba(255, 255, 255, 0.1), transparent 28%),
+    radial-gradient(circle at 78% 72%, rgba(0, 0, 0, 0.2), transparent 34%),
+    radial-gradient(circle at center, #3f9c67 0%, #1f6a45 72%);
+}
+
+.poker-chip {
+  display: inline-block;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  border: 2px dashed rgba(255, 255, 255, 0.6);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+}
+
+.poker-chip-red {
+  background: #bf3140;
+}
+
+.poker-chip-cream {
+  background: #eed29f;
+}
+
+.poker-chip-blue {
+  background: #2c6aa1;
+}
+
+.poker-card-back {
+  display: inline-block;
+  height: 22px;
+  width: 16px;
+  border-radius: 4px;
+  border: 1px solid #ede8d9;
+  background:
+    repeating-linear-gradient(45deg, #193f70 0 3px, #285a99 3px 6px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.15), rgba(0, 0, 0, 0.2));
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}

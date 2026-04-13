@@ -32,7 +32,7 @@ export default function ManualPage() {
           <h2 className="text-xl font-semibold text-[#17346b]">1. Como operar</h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
             <li>Entre com email/senha ou conta Google.</li>
-            <li>No menu, escolha a tela de trabalho: Dashboard, Partidas, Ranking ou Participantes.</li>
+            <li>No menu, escolha a tela de trabalho: Partidas, Ranking ou Participantes.</li>
             <li>Selecione o campeonato ativo e a partida que deseja registrar.</li>
             <li>Registre eliminacoes em ordem real para manter o placar correto.</li>
             <li>Ao finalizar a rodada, feche a partida para consolidar pontos e ranking.</li>

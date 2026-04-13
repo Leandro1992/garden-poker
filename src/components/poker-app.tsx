@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
@@ -22,6 +23,7 @@ import {
   createMatch,
   deleteMatch,
   finishMatch,
+  getMatchById,
   getUserProfile,
   importParticipants,
   listChampionships,
@@ -39,14 +41,15 @@ import { MainMenu } from "@/components/main-menu";
 import type { AppUser, Championship, EliminationEvent, Match, MatchScore, RankingRow } from "@/lib/types";
 
 type Flash = { type: "error" | "success"; message: string } | null;
-type PokerView = "dashboard" | "partidas" | "ranking" | "participantes";
+type PokerView = "partidas" | "ranking" | "participantes";
 
 const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS ?? "")
   .split(",")
   .map((item) => item.trim().toLowerCase())
   .filter(Boolean);
 
-export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
+export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: PokerView; exclusiveMatchId?: string }) {
+  const router = useRouter();
   const lastUserIdRef = useRef<string | null>(null);
 
   const [authUser, setAuthUser] = useState<User | null>(null);
@@ -78,7 +81,9 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   });
   const [matchFormDate, setMatchFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
-  const [eliminationForm, setEliminationForm] = useState({ playerId: "", eliminatedByUserId: "" });
+  const [isEliminationModalOpen, setIsEliminationModalOpen] = useState(false);
+  const [eliminationModalPlayerId, setEliminationModalPlayerId] = useState("");
+  const [eliminationModalByUserId, setEliminationModalByUserId] = useState("");
   const [participantImportFile, setParticipantImportFile] = useState<File | null>(null);
   const [isImportingParticipants, setIsImportingParticipants] = useState(false);
   const [showCreateChampionshipForm, setShowCreateChampionshipForm] = useState(false);
@@ -99,19 +104,81 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
   const isAdmin = profile?.role === "admin";
 
   const showMatchOps = view === "partidas";
-  const showRanking = view === "dashboard" || view === "ranking";
+  const showRanking = view === "ranking";
   const showParticipants = view === "participantes";
+  const isExclusiveMatchView = showMatchOps && Boolean(exclusiveMatchId);
   const showRankingSelector = showRanking;
   const openMatches = useMemo(() => matches.filter((item) => item.status === "open"), [matches]);
   const finishedMatches = useMemo(() => matches.filter((item) => item.status === "finished"), [matches]);
+  const hasSelectedChampionship = Boolean(selectedChampionship);
+  const showFinishedFlow = hasSelectedChampionship && partidasMode === "finished" && !isExclusiveMatchView;
+  const showMatchManagementFlow = hasSelectedChampionship && (partidasMode === "new" || isExclusiveMatchView);
+  const hasSelectedOpenMatch = Boolean(selectedMatch && selectedMatch.status === "open");
+  const hasSelectedFinishedMatch = Boolean(selectedMatch && selectedMatch.status === "finished");
 
   const selectedMatchRemaining = useMemo(() => {
     if (!selectedMatch) {
       return [] as AppUser[];
     }
+    if (selectedMatch.status === "finished") {
+      return [] as AppUser[];
+    }
     const eliminated = new Set(eliminations.map((item) => item.playerId));
     return users.filter((item) => selectedMatch.participantIds.includes(item.id) && !eliminated.has(item.id));
   }, [eliminations, selectedMatch, users]);
+
+  const selectedMatchPlayers = useMemo(() => {
+    if (!selectedMatch) {
+      return [] as Array<{ user: AppUser; isEliminated: boolean; eliminationOrder: number | null; knockouts: number }>;
+    }
+
+    return selectedMatch.participantIds
+      .map((participantId) => {
+        const user = users.find((item) => item.id === participantId);
+        if (!user) {
+          return null;
+        }
+
+        const elimination = eliminations.find((item) => item.playerId === participantId) ?? null;
+        const knockouts = eliminations.filter((item) => item.eliminatedByUserId === participantId).length;
+
+        return {
+          user,
+          isEliminated: Boolean(elimination),
+          eliminationOrder: elimination?.eliminationOrder ?? null,
+          knockouts,
+        };
+      })
+      .filter((item): item is { user: AppUser; isEliminated: boolean; eliminationOrder: number | null; knockouts: number } =>
+        Boolean(item),
+      );
+  }, [eliminations, selectedMatch, users]);
+
+  const tablePlayers = useMemo(() => {
+    if (!selectedMatch) {
+      return selectedMatchPlayers;
+    }
+
+    if (selectedMatch.status === "finished") {
+      return selectedMatchPlayers.filter((item) => item.isEliminated);
+    }
+
+    return selectedMatchPlayers;
+  }, [selectedMatch, selectedMatchPlayers]);
+
+  const eliminationModalPlayer = useMemo(
+    () => users.find((item) => item.id === eliminationModalPlayerId) ?? null,
+    [eliminationModalPlayerId, users],
+  );
+
+  const availableEliminators = useMemo(() => {
+    if (!selectedMatch) {
+      return [] as AppUser[];
+    }
+
+    const aliveIds = new Set(selectedMatchRemaining.map((item) => item.id));
+    return users.filter((item) => aliveIds.has(item.id) && item.id !== eliminationModalPlayerId);
+  }, [eliminationModalPlayerId, selectedMatch, selectedMatchRemaining, users]);
 
   const showError = useCallback((error: unknown) => {
     const message = error instanceof Error ? error.message : "Erro inesperado.";
@@ -198,7 +265,9 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
     setMatchScores([]);
     setEliminations([]);
     setSelectedParticipantIds([]);
-    setEliminationForm({ playerId: "", eliminatedByUserId: "" });
+    setIsEliminationModalOpen(false);
+    setEliminationModalPlayerId("");
+    setEliminationModalByUserId("");
     setFlash(null);
   }, []);
 
@@ -351,11 +420,49 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       return;
     }
 
+    if (isExclusiveMatchView) {
+      return;
+    }
+
     setPartidasMode(null);
     setSelectedMatchId("");
     setIsDeleteMatchConfirmStep(false);
     setIsFinishMatchConfirmStep(false);
-  }, [selectedChampionshipId, showMatchOps]);
+  }, [isExclusiveMatchView, selectedChampionshipId, showMatchOps]);
+
+  useEffect(() => {
+    if (!exclusiveMatchId || !profile || usuarioPendente) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const match = await getMatchById(exclusiveMatchId);
+        if (cancelled) {
+          return;
+        }
+
+        if (!match) {
+          setFlash({ type: "error", message: "Partida nao encontrada." });
+          return;
+        }
+
+        setSelectedChampionshipId(match.championshipId);
+        setSelectedMatchId(match.id);
+        setPartidasMode("new");
+      } catch (error) {
+        if (!cancelled) {
+          showError(error);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [exclusiveMatchId, profile, showError, usuarioPendente]);
 
   async function handleAuthSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -452,28 +559,46 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       setSelectedMatchId(matchId);
       setPartidasMode("new");
       setFlash({ type: "success", message: "Partida aberta." });
+      if (!exclusiveMatchId) {
+        router.push(`/partidas/${matchId}`);
+      }
     } catch (error) {
       showError(error);
     }
   }
 
-  async function handleRegisterElimination(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!selectedMatchId || !eliminationForm.playerId) {
+  function openEliminationModal(playerId: string) {
+    if (!selectedMatch || selectedMatch.status === "finished") {
+      return;
+    }
+
+    setEliminationModalPlayerId(playerId);
+    setEliminationModalByUserId("");
+    setIsEliminationModalOpen(true);
+  }
+
+  function closeEliminationModal() {
+    setIsEliminationModalOpen(false);
+    setEliminationModalPlayerId("");
+    setEliminationModalByUserId("");
+  }
+
+  async function handleConfirmElimination() {
+    if (!selectedMatchId || !eliminationModalPlayerId) {
       return;
     }
 
     try {
       await registerElimination({
         matchId: selectedMatchId,
-        playerId: eliminationForm.playerId,
-        eliminatedByUserId: eliminationForm.eliminatedByUserId || null,
+        playerId: eliminationModalPlayerId,
+        eliminatedByUserId: eliminationModalByUserId || null,
       });
       await refreshMatchData(selectedMatchId);
       if (selectedChampionshipId) {
         await refreshChampionshipData(selectedChampionshipId);
       }
-      setEliminationForm({ playerId: "", eliminatedByUserId: "" });
+      closeEliminationModal();
       setFlash({ type: "success", message: "Eliminacao registrada." });
     } catch (error) {
       showError(error);
@@ -494,6 +619,7 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
       await finishMatch(selectedMatchId);
       await refreshChampionshipData(selectedChampionshipId);
       await refreshMatchData(selectedMatchId);
+      closeEliminationModal();
       setIsFinishMatchConfirmStep(false);
       setFlash({ type: "success", message: "Partida finalizada." });
     } catch (error) {
@@ -854,6 +980,7 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
 
       {showMatchOps ? (
         <>
+          {!isExclusiveMatchView ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-[#10254f]">Campeonatos</h2>
@@ -916,11 +1043,13 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
               </form>
             ) : null}
           </section>
+          ) : null}
 
-          {selectedChampionship ? (
+          {selectedChampionship && !isExclusiveMatchView ? (
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="text-base font-semibold text-[#10254f]">Escolha uma acao</h3>
+              <h3 className="text-base font-semibold text-[#10254f]">Central da rodada</h3>
               <p className="mt-1 text-sm text-slate-600">{selectedChampionship.year} - {selectedChampionship.name}</p>
+
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
@@ -947,6 +1076,11 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                   }`}
                   onClick={() => {
                     setPartidasMode("new");
+                    // Limpa contexto de partidas finalizadas para focar apenas na abertura/gestao da nova partida.
+                    setMatchScores([]);
+                    setEliminations([]);
+                    setIsDeleteMatchConfirmStep(false);
+                    setIsFinishMatchConfirmStep(false);
                     const fallback = openMatches[0]?.id ?? "";
                     const selectedIsOpen = openMatches.some((item) => item.id === selectedMatchId);
                     setSelectedMatchId(selectedIsOpen ? selectedMatchId : fallback);
@@ -955,14 +1089,69 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                   Iniciar nova partida
                 </button>
               </div>
+
+              {partidasMode === "new" ? (
+                <>
+                  <label className="mt-4 block text-sm font-medium text-slate-700">
+                    Selecione a partida aberta
+                    <select
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
+                      value={selectedMatchId}
+                      onChange={(event) => {
+                        setSelectedMatchId(event.target.value);
+                        setIsDeleteMatchConfirmStep(false);
+                        setIsFinishMatchConfirmStep(false);
+                      }}
+                    >
+                      <option value="">Selecione</option>
+                      {openMatches.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.playedAt}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {openMatches.length === 0 ? (
+                    <p className="mt-3 text-sm text-slate-500">Nao ha partidas abertas neste campeonato.</p>
+                  ) : null}
+
+                  {selectedMatchId ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-[#17346b] bg-[#eef3f9] px-3 py-2 text-sm font-medium text-[#17346b] transition hover:bg-[#dce9f7]"
+                        onClick={() => router.push(`/partidas/${selectedMatchId}`)}
+                      >
+                        Abrir tela exclusiva desta partida
+                      </button>
+                      {isAdmin ? (
+                        <button
+                          type="button"
+                          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                          onClick={() => {
+                            setSelectedMatchId("");
+                            setIsDeleteMatchConfirmStep(false);
+                            setIsFinishMatchConfirmStep(false);
+                          }}
+                        >
+                          Criar outra partida
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </section>
-          ) : (
+          ) : null}
+
+          {!selectedChampionship && !isExclusiveMatchView ? (
             <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
               Selecione um campeonato para continuar.
             </section>
-          )}
+          ) : null}
 
-          {selectedChampionship && partidasMode === "finished" ? (
+          {showFinishedFlow ? (
             <section className="grid gap-4 xl:grid-cols-2">
               <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Partidas finalizadas</h2>
@@ -1043,35 +1232,109 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
             </section>
           ) : null}
 
-          {selectedChampionship && partidasMode === "new" ? (
+          {showMatchManagementFlow ? (
             <>
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Partida em andamento</h2>
-                <label className="block text-sm font-medium text-slate-700">
-                  Selecione a partida aberta
-                  <select
-                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                    value={selectedMatchId}
-                    onChange={(event) => {
-                      setSelectedMatchId(event.target.value);
-                      setIsDeleteMatchConfirmStep(false);
-                      setIsFinishMatchConfirmStep(false);
-                    }}
-                  >
-                    <option value="">Selecione</option>
-                    {openMatches.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.playedAt}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {openMatches.length === 0 ? (
-                  <p className="mt-3 text-sm text-slate-500">Nao ha partidas abertas neste campeonato.</p>
-                ) : null}
-              </section>
+              {isExclusiveMatchView ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-semibold text-[#10254f]">Gestao da partida</h2>
+                      <p className="text-sm text-slate-600">Tela exclusiva para eliminacoes e placar parcial.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      onClick={() => router.push("/partidas")}
+                    >
+                      Voltar
+                    </button>
+                  </div>
+                </section>
+              ) : null}
 
-              {isAdmin ? (
+              {hasSelectedOpenMatch ? (
+                <section className="poker-table-enter rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h2 className="text-lg font-semibold text-[#10254f]">Mesa da partida</h2>
+                      <p className="text-sm text-slate-600">Data: {selectedMatch?.playedAt}</p>
+                    </div>
+                    <span className="rounded-full bg-[#f3ead3] px-3 py-1 text-xs font-semibold text-[#17346b]">
+                      {selectedMatchRemaining.length} em jogo
+                    </span>
+                  </div>
+
+                  <div className="poker-table-shell mt-4 rounded-3xl border-4 border-[#5e3b1f] bg-[#3f2715] p-2 shadow-inner">
+                    <div className="poker-felt relative rounded-[28px] border border-[#234b32] p-3">
+                      <div className="pointer-events-none absolute left-3 top-3 flex items-center -space-x-2">
+                        <span className="poker-chip poker-chip-red" />
+                        <span className="poker-chip poker-chip-cream" />
+                        <span className="poker-chip poker-chip-blue" />
+                      </div>
+                      <div className="pointer-events-none absolute right-3 top-3 flex gap-1">
+                        <span className="poker-card-back" />
+                        <span className="poker-card-back translate-y-1" />
+                      </div>
+                      <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-[#d9c59b] bg-[#f4e3be] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#7a4a1d]">
+                        Pot
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        {tablePlayers.map((playerState) => {
+                          const isSelected = eliminationModalPlayerId === playerState.user.id;
+                          return (
+                            <button
+                              key={playerState.user.id}
+                              type="button"
+                              disabled={playerState.isEliminated || selectedMatch?.status === "finished"}
+                              onClick={() => openEliminationModal(playerState.user.id)}
+                              className={`min-h-20 rounded-2xl border p-2 text-left text-xs transition ${
+                                playerState.isEliminated
+                                  ? "border-slate-300 bg-slate-100 text-slate-500"
+                                  : isSelected
+                                    ? "border-[#17346b] bg-[#d9e8f7] text-[#10254f]"
+                                    : "border-[#d7c4a8] bg-[#fff9ef] text-[#17346b]"
+                              }`}
+                            >
+                              <p className="truncate font-semibold">{playerState.user.name}</p>
+                              <p className="mt-1">
+                                {playerState.isEliminated
+                                  ? `Eliminado #${playerState.eliminationOrder ?? "-"}`
+                                  : "Toque para marcar eliminado"}
+                              </p>
+                              <p className="mt-1 text-[11px] opacity-80">KO: {playerState.knockouts}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedMatch?.status === "finished" ? (
+                    <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                      Partida finalizada. A mesa foi encerrada automaticamente.
+                    </p>
+                  ) : null}
+
+                  {selectedMatch?.status !== "finished" ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedMatchPlayers
+                        .filter((item) => !item.isEliminated)
+                        .map((item) => (
+                          <button
+                            key={item.user.id}
+                            type="button"
+                            className="rounded-full border border-[#d7c4a8] bg-[#fff7e8] px-3 py-1.5 text-xs font-medium text-[#17346b] transition hover:bg-[#f4e7cf]"
+                            onClick={() => openEliminationModal(item.user.id)}
+                          >
+                            {item.user.name}
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
+
+              {isAdmin && !isExclusiveMatchView && !hasSelectedOpenMatch ? (
                 <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                   <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Nova partida</h2>
                   <form onSubmit={handleCreateMatch} className="space-y-3">
@@ -1121,41 +1384,194 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                 </section>
               ) : null}
 
-              <section className="grid gap-4 xl:grid-cols-2">
-                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Eventos da rodada</h2>
-                  <form onSubmit={handleRegisterElimination} className="space-y-3">
-                    <label className="block text-sm font-medium text-slate-700">
-                      Jogador eliminado
-                      <select
-                        required
-                        value={eliminationForm.playerId}
-                        onChange={(event) => setEliminationForm((prev) => ({ ...prev, playerId: event.target.value }))}
-                        className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
-                      >
-                        <option value="">Selecione</option>
-                        {selectedMatchRemaining.map((player) => (
-                          <option key={player.id} value={player.id}>
-                            {player.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+              {hasSelectedOpenMatch ? (
+                <section className="grid gap-4 xl:grid-cols-2">
+                  <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Historico da rodada</h2>
+                    <p className="mb-3 text-sm text-slate-600">Toque em um jogador da mesa para registrar uma eliminacao.</p>
 
-                    <label className="block text-sm font-medium text-slate-700">
+                    <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-slate-600">
+                          <tr>
+                            <th className="px-3 py-2">Ordem</th>
+                            <th className="px-3 py-2">Jogador</th>
+                            <th className="px-3 py-2">Eliminador</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {eliminations.map((item) => {
+                            const player = users.find((user) => user.id === item.playerId);
+                            const eliminator = users.find((user) => user.id === item.eliminatedByUserId);
+                            return (
+                              <tr key={item.id} className="border-t border-slate-200">
+                                <td className="px-3 py-2">{item.eliminationOrder}</td>
+                                <td className="px-3 py-2">{player?.name ?? item.playerId}</td>
+                                <td className="px-3 py-2">{eliminator?.name ?? "-"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {isAdmin ? (
+                      <div className="mt-3 grid gap-2 md:grid-cols-2">
+                        <button
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={handleFinishMatch}
+                          disabled={!selectedMatchId || selectedMatch?.status === "finished"}
+                        >
+                          {isFinishMatchConfirmStep ? "Confirmar finalizacao" : "Finalizar partida"}
+                        </button>
+                        <button
+                          className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={handleDeleteMatch}
+                          disabled={!selectedMatchId}
+                        >
+                          {isDeleteMatchConfirmStep ? "Confirmar exclusao" : "Excluir partida"}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {isAdmin && isDeleteMatchConfirmStep ? (
+                      <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                        <p className="font-medium">Confirmacao necessaria</p>
+                        <p className="mt-1">Clique em Confirmar exclusao para remover a partida e todos os nocautes registrados.</p>
+                        <button
+                          type="button"
+                          className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
+                          onClick={() => setIsDeleteMatchConfirmStep(false)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {isAdmin && isFinishMatchConfirmStep ? (
+                      <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                        <p className="font-medium">Confirmacao necessaria</p>
+                        <p className="mt-1">Clique em Confirmar finalizacao para fechar a partida e consolidar a pontuacao.</p>
+                        <button
+                          type="button"
+                          className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 transition hover:bg-amber-100"
+                          onClick={() => setIsFinishMatchConfirmStep(false)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+
+                  <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Placar da partida</h2>
+                    {selectedMatch?.status !== "finished" ? (
+                      <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        A partida esta aberta. Pontos e posicoes finais serao aplicados somente apos a finalizacao.
+                      </p>
+                    ) : null}
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-slate-600">
+                          <tr>
+                            <th className="px-3 py-2">Jogador</th>
+                            <th className="px-3 py-2">Posicao</th>
+                            <th className="px-3 py-2">Nocautes</th>
+                            <th className="px-3 py-2">Pontos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {matchScores.length > 0 ? (
+                            matchScores.map((score) => {
+                              const player = users.find((user) => user.id === score.userId);
+                              return (
+                                <tr key={score.userId} className="border-t border-slate-200">
+                                  <td className="px-3 py-2">{player?.name ?? score.userId}</td>
+                                  <td className="px-3 py-2">{score.position}</td>
+                                  <td className="px-3 py-2">{score.knockouts}</td>
+                                  <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr className="border-t border-slate-200">
+                              <td className="px-3 py-3 text-slate-500" colSpan={4}>
+                                {selectedMatch?.status === "finished"
+                                  ? "Sem pontuacao consolidada para esta partida."
+                                  : "Aguardando finalizacao da partida para consolidar o placar final."}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                </section>
+              ) : hasSelectedFinishedMatch ? (
+                <section className="grid gap-4">
+                  <article className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                    <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Resultado final da partida</h2>
+                    <p className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                      Partida finalizada. Pontuacao consolidada para {selectedMatch?.playedAt}.
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border border-slate-200">
+                      <table className="min-w-full text-sm">
+                        <thead className="bg-slate-50 text-left text-slate-600">
+                          <tr>
+                            <th className="px-3 py-2">Jogador</th>
+                            <th className="px-3 py-2">Posicao</th>
+                            <th className="px-3 py-2">Nocautes</th>
+                            <th className="px-3 py-2">Pontos</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {matchScores.length > 0 ? (
+                            matchScores.map((score) => {
+                              const player = users.find((user) => user.id === score.userId);
+                              return (
+                                <tr key={score.userId} className="border-t border-slate-200">
+                                  <td className="px-3 py-2">{player?.name ?? score.userId}</td>
+                                  <td className="px-3 py-2">{score.position}</td>
+                                  <td className="px-3 py-2">{score.knockouts}</td>
+                                  <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
+                                </tr>
+                              );
+                            })
+                          ) : (
+                            <tr className="border-t border-slate-200">
+                              <td className="px-3 py-3 text-slate-500" colSpan={4}>
+                                Aguardando consolidacao da pontuacao final.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </article>
+                </section>
+              ) : !isExclusiveMatchView ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                  Selecione uma partida aberta para iniciar a gestao da rodada.
+                </section>
+              ) : null}
+
+              {isEliminationModalOpen && eliminationModalPlayer ? (
+                <section className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/45 p-3 sm:items-center">
+                  <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+                    <h3 className="text-lg font-semibold text-[#10254f]">Registrar eliminacao</h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Jogador eliminado: <span className="font-semibold text-slate-800">{eliminationModalPlayer.name}</span>
+                    </p>
+
+                    <label className="mt-3 block text-sm font-medium text-slate-700">
                       Quem eliminou
                       <select
-                        value={eliminationForm.eliminatedByUserId}
-                        onChange={(event) =>
-                          setEliminationForm((prev) => ({
-                            ...prev,
-                            eliminatedByUserId: event.target.value,
-                          }))
-                        }
+                        value={eliminationModalByUserId}
+                        onChange={(event) => setEliminationModalByUserId(event.target.value)}
                         className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-900 outline-none ring-blue-200 transition focus:ring"
                       >
                         <option value="">Sem nocaute / desconhecido</option>
-                        {selectedMatchRemaining.map((player) => (
+                        {availableEliminators.map((player) => (
                           <option key={player.id} value={player.id}>
                             {player.name}
                           </option>
@@ -1163,134 +1579,26 @@ export function PokerApp({ view = "dashboard" }: { view?: PokerView }) {
                       </select>
                     </label>
 
-                    <button
-                      className="w-full rounded-xl bg-[#17346b] px-3 py-2.5 font-semibold text-white transition hover:bg-[#10254f] disabled:cursor-not-allowed disabled:bg-slate-300"
-                      type="submit"
-                      disabled={!selectedMatchId || selectedMatch?.status === "finished"}
-                    >
-                      Registrar eliminacao
-                    </button>
-                  </form>
-
-                  <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50 text-left text-slate-600">
-                        <tr>
-                          <th className="px-3 py-2">Ordem</th>
-                          <th className="px-3 py-2">Jogador</th>
-                          <th className="px-3 py-2">Eliminador</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {eliminations.map((item) => {
-                          const player = users.find((user) => user.id === item.playerId);
-                          const eliminator = users.find((user) => user.id === item.eliminatedByUserId);
-                          return (
-                            <tr key={item.id} className="border-t border-slate-200">
-                              <td className="px-3 py-2">{item.eliminationOrder}</td>
-                              <td className="px-3 py-2">{player?.name ?? item.playerId}</td>
-                              <td className="px-3 py-2">{eliminator?.name ?? "-"}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {isAdmin ? (
-                    <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      <button
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={handleFinishMatch}
-                        disabled={!selectedMatchId || selectedMatch?.status === "finished"}
-                      >
-                        {isFinishMatchConfirmStep ? "Confirmar finalizacao" : "Finalizar partida"}
-                      </button>
-                      <button
-                        className="w-full rounded-xl border border-red-300 bg-red-50 px-3 py-2.5 font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        onClick={handleDeleteMatch}
-                        disabled={!selectedMatchId}
-                      >
-                        {isDeleteMatchConfirmStep ? "Confirmar exclusao" : "Excluir partida"}
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {isAdmin && isDeleteMatchConfirmStep ? (
-                    <div className="mt-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                      <p className="font-medium">Confirmacao necessaria</p>
-                      <p className="mt-1">Clique em Confirmar exclusao para remover a partida e todos os nocautes registrados.</p>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
                       <button
                         type="button"
-                        className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
-                        onClick={() => setIsDeleteMatchConfirmStep(false)}
+                        className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-medium text-slate-700 transition hover:bg-slate-50"
+                        onClick={closeEliminationModal}
                       >
                         Cancelar
                       </button>
-                    </div>
-                  ) : null}
-
-                  {isAdmin && isFinishMatchConfirmStep ? (
-                    <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                      <p className="font-medium">Confirmacao necessaria</p>
-                      <p className="mt-1">Clique em Confirmar finalizacao para fechar a partida e consolidar a pontuacao.</p>
                       <button
                         type="button"
-                        className="mt-2 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-amber-800 transition hover:bg-amber-100"
-                        onClick={() => setIsFinishMatchConfirmStep(false)}
+                        className="rounded-xl bg-[#17346b] px-3 py-2 font-semibold text-white transition hover:bg-[#10254f] disabled:cursor-not-allowed disabled:bg-slate-300"
+                        onClick={handleConfirmElimination}
+                        disabled={!selectedMatchId || !eliminationModalPlayerId || selectedMatch?.status === "finished"}
                       >
-                        Cancelar
+                        Confirmar
                       </button>
                     </div>
-                  ) : null}
-                </article>
-
-                <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                  <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Placar da partida</h2>
-                  {selectedMatch && selectedMatch.status !== "finished" ? (
-                    <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      A partida esta aberta. Pontos e posicoes finais serao aplicados somente apos a finalizacao.
-                    </p>
-                  ) : null}
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50 text-left text-slate-600">
-                        <tr>
-                          <th className="px-3 py-2">Jogador</th>
-                          <th className="px-3 py-2">Posicao</th>
-                          <th className="px-3 py-2">Nocautes</th>
-                          <th className="px-3 py-2">Pontos</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {matchScores.length > 0 ? (
-                          matchScores.map((score) => {
-                            const player = users.find((user) => user.id === score.userId);
-                            return (
-                              <tr key={score.userId} className="border-t border-slate-200">
-                                <td className="px-3 py-2">{player?.name ?? score.userId}</td>
-                                <td className="px-3 py-2">{score.position}</td>
-                                <td className="px-3 py-2">{score.knockouts}</td>
-                                <td className="px-3 py-2 font-semibold text-[#17346b]">{score.totalPoints}</td>
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr className="border-t border-slate-200">
-                            <td className="px-3 py-3 text-slate-500" colSpan={4}>
-                              {selectedMatch
-                                ? selectedMatch.status === "finished"
-                                  ? "Sem pontuacao consolidada para esta partida."
-                                  : "Aguardando finalizacao da partida para consolidar o placar final."
-                                : "Selecione uma partida aberta para visualizar o placar."}
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
                   </div>
-                </article>
-              </section>
+                </section>
+              ) : null}
             </>
           ) : null}
         </>
