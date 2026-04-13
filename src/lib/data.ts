@@ -263,6 +263,24 @@ export async function listMatches(championshipId: string): Promise<Match[]> {
     .sort((a, b) => b.playedAt.localeCompare(a.playedAt));
 }
 
+export async function getMatchById(matchId: string): Promise<Match | null> {
+  const snap = await getDoc(doc(matchesCol, matchId));
+  if (!snap.exists()) {
+    return null;
+  }
+
+  const data = snap.data();
+  return {
+    id: snap.id,
+    championshipId: data.championshipId,
+    playedAt: data.playedAt,
+    participantIds: data.participantIds ?? [],
+    status: data.status,
+    createdBy: data.createdBy,
+    createdAt: Date.now(),
+  };
+}
+
 export async function listEliminations(matchId: string): Promise<EliminationEvent[]> {
   const snap = await getDocs(query(eliminationsCol, where("matchId", "==", matchId)));
 

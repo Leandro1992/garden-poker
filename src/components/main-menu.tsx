@@ -8,7 +8,6 @@ type MainMenuProps = {
 };
 
 const menuItems = [
-  { href: "/", label: "Dashboard", adminOnly: false },
   { href: "/partidas", label: "Partidas", adminOnly: false },
   { href: "/ranking", label: "Ranking", adminOnly: false },
   { href: "/participantes", label: "Participantes", adminOnly: true },
@@ -24,7 +23,7 @@ export function MainMenu({ isAdmin = false }: MainMenuProps) {
         {menuItems
           .filter((item) => !item.adminOnly || isAdmin)
           .map((item) => {
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+            const active = item.href === "/partidas" ? pathname === "/" || pathname.startsWith("/partidas") : pathname.startsWith(item.href);
             return (
               <li key={item.href}>
                 <Link
