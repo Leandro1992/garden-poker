@@ -96,7 +96,13 @@ describe("computeChampionshipRanking", () => {
 
     expect(ranking[0].userId).toBe("b");
     expect(ranking[0].totalPoints).toBe(47);
+    expect(ranking[0].firstPlaces).toBe(1);
+    expect(ranking[0].secondPlaces).toBe(1);
+    expect(ranking[0].thirdPlaces).toBe(0);
     expect(ranking[1].totalPoints).toBe(42);
+    expect(ranking[1].firstPlaces).toBe(1);
+    expect(ranking[1].secondPlaces).toBe(0);
+    expect(ranking[1].thirdPlaces).toBe(1);
   });
 
   it("assigns zero placement points for positions above top 10 (WO rule)", () => {

@@ -51,4 +51,9 @@ export type RankingRow = {
   totalPoints: number;
   matches: number;
   knockouts: number;
+  firstPlaces: number;
+  secondPlaces: number;
+  thirdPlaces: number;
+  trend: "up" | "down" | "same" | "new";
+  trendDelta: number;
 };

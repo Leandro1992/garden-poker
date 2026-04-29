@@ -17,7 +17,7 @@ import * as XLSX from "xlsx";
 
 import { auth } from "@/lib/firebase";
 import {
-  calculateChampionshipRanking,
+  calculateChampionshipRankingComparison,
   calculateMatchScores,
   createChampionship,
   createMatch,
@@ -33,6 +33,7 @@ import {
   readRankingSeed,
   registerElimination,
   setUserRole,
+  undoLastElimination,
   updateUserAccessByHistory,
   upsertUserProfile,
 } from "@/lib/data";
@@ -126,6 +127,8 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
     const eliminated = new Set(eliminations.map((item) => item.playerId));
     return users.filter((item) => selectedMatch.participantIds.includes(item.id) && !eliminated.has(item.id));
   }, [eliminations, selectedMatch, users]);
+
+  const canRegisterKnockout = hasSelectedOpenMatch && selectedMatchRemaining.length > 2;
 
   const selectedMatchPlayers = useMemo(() => {
     if (!selectedMatch) {
@@ -294,28 +297,95 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
 
   const refreshChampionshipData = useCallback(
     async (championshipId: string) => {
-      const [matchesSnap, rankingSnap, seedSnap] = await Promise.all([
+      const [matchesSnap, rankingComparison, seedSnap] = await Promise.all([
         listMatches(championshipId),
-        calculateChampionshipRanking(championshipId),
+        calculateChampionshipRankingComparison(championshipId),
         readRankingSeed(championshipId),
       ]);
 
       setMatches(matchesSnap);
       setSeedMap(seedSnap);
 
-      const merged = rankingSnap.map((item) => ({
+      const merged = rankingComparison.current.map((item) => ({
+        ...item,
+        totalPoints: item.totalPoints + (seedSnap[item.userId] ?? 0),
+      }));
+
+      const mergedPrevious = rankingComparison.previous.map((item) => ({
         ...item,
         totalPoints: item.totalPoints + (seedSnap[item.userId] ?? 0),
       }));
 
       Object.entries(seedSnap).forEach(([userId, points]) => {
         if (!merged.some((row) => row.userId === userId)) {
-          merged.push({ userId, totalPoints: points, matches: 0, knockouts: 0 });
+          merged.push({
+            userId,
+            totalPoints: points,
+            matches: 0,
+            knockouts: 0,
+            firstPlaces: 0,
+            secondPlaces: 0,
+            thirdPlaces: 0,
+            trend: "new",
+            trendDelta: 0,
+          });
+        }
+
+        if (!mergedPrevious.some((row) => row.userId === userId)) {
+          mergedPrevious.push({
+            userId,
+            totalPoints: points,
+            matches: 0,
+            knockouts: 0,
+            firstPlaces: 0,
+            secondPlaces: 0,
+            thirdPlaces: 0,
+            trend: "same",
+            trendDelta: 0,
+          });
         }
       });
 
       merged.sort((a, b) => b.totalPoints - a.totalPoints);
-      setRanking(merged);
+      mergedPrevious.sort((a, b) => b.totalPoints - a.totalPoints);
+
+      const previousPositions = new Map<string, number>();
+      mergedPrevious.forEach((row, index) => {
+        previousPositions.set(row.userId, index + 1);
+      });
+
+      const withTrend = merged.map((row, index) => {
+        const currentPosition = index + 1;
+        const previousPosition = previousPositions.get(row.userId);
+
+        if (!previousPosition) {
+          return { ...row, trend: "new" as const, trendDelta: 0 };
+        }
+
+        if (previousPosition > currentPosition) {
+          return {
+            ...row,
+            trend: "up" as const,
+            trendDelta: previousPosition - currentPosition,
+          };
+        }
+
+        if (previousPosition < currentPosition) {
+          return {
+            ...row,
+            trend: "down" as const,
+            trendDelta: currentPosition - previousPosition,
+          };
+        }
+
+        return {
+          ...row,
+          trend: "same" as const,
+          trendDelta: 0,
+        };
+      });
+
+      setRanking(withTrend);
 
       if (matchesSnap.length === 0) {
         setSelectedMatchId("");
@@ -572,6 +642,11 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
       return;
     }
 
+    if (!canRegisterKnockout) {
+      setFlash({ type: "error", message: "Nao ha KO quando restam apenas dois jogadores." });
+      return;
+    }
+
     setEliminationModalPlayerId(playerId);
     setEliminationModalByUserId("");
     setIsEliminationModalOpen(true);
@@ -588,6 +663,12 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
       return;
     }
 
+    if (!canRegisterKnockout) {
+      closeEliminationModal();
+      setFlash({ type: "error", message: "Nao ha KO quando restam apenas dois jogadores." });
+      return;
+    }
+
     try {
       await registerElimination({
         matchId: selectedMatchId,
@@ -600,6 +681,24 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
       }
       closeEliminationModal();
       setFlash({ type: "success", message: "Eliminacao registrada." });
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function handleUndoLastElimination() {
+    if (!selectedMatchId || selectedMatch?.status !== "open") {
+      return;
+    }
+
+    try {
+      await undoLastElimination(selectedMatchId);
+      await refreshMatchData(selectedMatchId);
+      if (selectedChampionshipId) {
+        await refreshChampionshipData(selectedChampionshipId);
+      }
+      closeEliminationModal();
+      setFlash({ type: "success", message: "Ultimo KO desfeito com sucesso." });
     } catch (error) {
       showError(error);
     }
@@ -1285,7 +1384,7 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
                             <button
                               key={playerState.user.id}
                               type="button"
-                              disabled={playerState.isEliminated || selectedMatch?.status === "finished"}
+                              disabled={playerState.isEliminated || selectedMatch?.status === "finished" || !canRegisterKnockout}
                               onClick={() => openEliminationModal(playerState.user.id)}
                               className={`min-h-20 rounded-2xl border p-2 text-left text-xs transition ${
                                 playerState.isEliminated
@@ -1299,7 +1398,9 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
                               <p className="mt-1">
                                 {playerState.isEliminated
                                   ? `Eliminado #${playerState.eliminationOrder ?? "-"}`
-                                  : "Toque para marcar eliminado"}
+                                  : canRegisterKnockout
+                                    ? "Toque para marcar eliminado"
+                                    : "Sem KO nesta fase (2 em jogo)"}
                               </p>
                               <p className="mt-1 text-[11px] opacity-80">KO: {playerState.knockouts}</p>
                             </button>
@@ -1317,18 +1418,22 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
 
                   {selectedMatch?.status !== "finished" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {selectedMatchPlayers
-                        .filter((item) => !item.isEliminated)
-                        .map((item) => (
-                          <button
-                            key={item.user.id}
-                            type="button"
-                            className="rounded-full border border-[#d7c4a8] bg-[#fff7e8] px-3 py-1.5 text-xs font-medium text-[#17346b] transition hover:bg-[#f4e7cf]"
-                            onClick={() => openEliminationModal(item.user.id)}
-                          >
-                            {item.user.name}
-                          </button>
-                        ))}
+                      {canRegisterKnockout
+                        ? selectedMatchPlayers
+                            .filter((item) => !item.isEliminated)
+                            .map((item) => (
+                              <button
+                                key={item.user.id}
+                                type="button"
+                                className="rounded-full border border-[#d7c4a8] bg-[#fff7e8] px-3 py-1.5 text-xs font-medium text-[#17346b] transition hover:bg-[#f4e7cf]"
+                                onClick={() => openEliminationModal(item.user.id)}
+                              >
+                                {item.user.name}
+                              </button>
+                            ))
+                        : (
+                          <p className="text-sm text-slate-600">Com dois jogadores restantes, nao ha mais registro de KO.</p>
+                        )}
                     </div>
                   ) : null}
                 </section>
@@ -1389,6 +1494,19 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
                   <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <h2 className="mb-3 text-lg font-semibold text-[#10254f]">Historico da rodada</h2>
                     <p className="mb-3 text-sm text-slate-600">Toque em um jogador da mesa para registrar uma eliminacao.</p>
+
+                    {selectedMatch?.status === "open" ? (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={handleUndoLastElimination}
+                          disabled={eliminations.length === 0}
+                        >
+                          Desfazer ultimo KO
+                        </button>
+                      </div>
+                    ) : null}
 
                     <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                       <table className="min-w-full text-sm">
@@ -1614,21 +1732,54 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
                   <tr>
                     <th className="px-3 py-2">#</th>
                     <th className="px-3 py-2">Jogador</th>
+                    <th className="px-3 py-2">Mov.</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2">Partidas</th>
                     <th className="px-3 py-2">KO</th>
+                    <th className="px-3 py-2">1o</th>
+                    <th className="px-3 py-2">2o</th>
+                    <th className="px-3 py-2">3o</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ranking.map((row, index) => {
                     const player = users.find((user) => user.id === row.userId);
+                    const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : null;
+
+                    let trendLabel = "Manteve";
+                    let trendClassName = "bg-slate-100 text-slate-700";
+
+                    if (row.trend === "up") {
+                      trendLabel = `Subiu ${row.trendDelta}`;
+                      trendClassName = "bg-emerald-100 text-emerald-800";
+                    } else if (row.trend === "down") {
+                      trendLabel = `Desceu ${row.trendDelta}`;
+                      trendClassName = "bg-red-100 text-red-800";
+                    } else if (row.trend === "new") {
+                      trendLabel = "Novo";
+                      trendClassName = "bg-blue-100 text-blue-800";
+                    }
+
                     return (
                       <tr key={row.userId} className="border-t border-slate-200">
-                        <td className="px-3 py-2">{index + 1}</td>
-                        <td className="px-3 py-2">{player?.name ?? row.userId}</td>
+                        <td className="px-3 py-2 font-medium">{index + 1}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            {medal ? <span aria-hidden="true">{medal}</span> : null}
+                            <span className={medal ? "font-semibold text-slate-900" : undefined}>{player?.name ?? row.userId}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${trendClassName}`}>
+                            {trendLabel}
+                          </span>
+                        </td>
                         <td className="px-3 py-2 font-semibold text-[#17346b]">{row.totalPoints}</td>
                         <td className="px-3 py-2">{row.matches}</td>
                         <td className="px-3 py-2">{row.knockouts}</td>
+                        <td className="px-3 py-2">{row.firstPlaces}</td>
+                        <td className="px-3 py-2">{row.secondPlaces}</td>
+                        <td className="px-3 py-2">{row.thirdPlaces}</td>
                       </tr>
                     );
                   })}

@@ -304,6 +304,34 @@ export async function registerElimination(params: {
   playerId: string;
   eliminatedByUserId: string | null;
 }): Promise<void> {
+  const matchSnap = await getDoc(doc(matchesCol, params.matchId));
+  if (!matchSnap.exists()) {
+    throw new Error("Partida nao encontrada.");
+  }
+
+  const matchData = matchSnap.data();
+  const participantIds = Array.isArray(matchData.participantIds) ? (matchData.participantIds as string[]) : [];
+
+  if (participantIds.length < 2) {
+    throw new Error("Partida invalida para registro de eliminacao.");
+  }
+
+  if (matchData.status !== "open") {
+    throw new Error("A partida ja foi finalizada.");
+  }
+
+  if (!participantIds.includes(params.playerId)) {
+    throw new Error("Jogador eliminado nao participa desta partida.");
+  }
+
+  if (params.eliminatedByUserId && !participantIds.includes(params.eliminatedByUserId)) {
+    throw new Error("Jogador eliminador nao participa desta partida.");
+  }
+
+  if (params.eliminatedByUserId && params.eliminatedByUserId === params.playerId) {
+    throw new Error("Eliminador nao pode ser o proprio jogador eliminado.");
+  }
+
   const already = await getDocs(
     query(eliminationsCol, where("matchId", "==", params.matchId), where("playerId", "==", params.playerId)),
   );
@@ -313,6 +341,16 @@ export async function registerElimination(params: {
   }
 
   const currentEliminations = await listEliminations(params.matchId);
+
+  if (currentEliminations.length >= participantIds.length - 2) {
+    throw new Error("Nao ha KO quando restam apenas dois jogadores.");
+  }
+
+  const eliminatedIds = new Set(currentEliminations.map((item) => item.playerId));
+  if (params.eliminatedByUserId && eliminatedIds.has(params.eliminatedByUserId)) {
+    throw new Error("O eliminador informado ja foi eliminado nesta partida.");
+  }
+
   const nextOrder = currentEliminations.length + 1;
 
   await addDoc(eliminationsCol, {
@@ -322,6 +360,26 @@ export async function registerElimination(params: {
     eliminationOrder: nextOrder,
     createdAt: serverTimestamp(),
   });
+}
+
+export async function undoLastElimination(matchId: string): Promise<void> {
+  const matchSnap = await getDoc(doc(matchesCol, matchId));
+  if (!matchSnap.exists()) {
+    throw new Error("Partida nao encontrada.");
+  }
+
+  const matchData = matchSnap.data();
+  if (matchData.status !== "open") {
+    throw new Error("Nao e possivel desfazer KO em partida finalizada.");
+  }
+
+  const eliminations = await listEliminations(matchId);
+  if (eliminations.length === 0) {
+    throw new Error("Nao ha KO para desfazer nesta partida.");
+  }
+
+  const lastElimination = eliminations[eliminations.length - 1];
+  await deleteDoc(doc(eliminationsCol, lastElimination.id));
 }
 
 export async function finishMatch(matchId: string): Promise<void> {
@@ -373,6 +431,19 @@ export async function calculateChampionshipRanking(championshipId: string): Prom
   const matches = (await listMatches(championshipId)).filter((match) => match.status === "finished");
   const results = await Promise.all(matches.map((match) => calculateMatchScores(match.id)));
   return computeChampionshipRanking(results);
+}
+
+export async function calculateChampionshipRankingComparison(championshipId: string): Promise<{
+  current: RankingRow[];
+  previous: RankingRow[];
+}> {
+  const finishedMatches = (await listMatches(championshipId)).filter((match) => match.status === "finished");
+  const results = await Promise.all(finishedMatches.map((match) => calculateMatchScores(match.id)));
+
+  return {
+    current: computeChampionshipRanking(results),
+    previous: computeChampionshipRanking(results.slice(1)),
+  };
 }
 
 export async function seedInitialRanking(params: {

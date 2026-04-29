@@ -1,12 +1,41 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 
 import { AppHeader } from "@/components/app-header";
 import { MainMenu } from "@/components/main-menu";
+import { getUserProfile } from "@/lib/data";
 import { auth } from "@/lib/firebase";
 
 export default function ManualPage() {
+  const router = useRouter();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [subtitle, setSubtitle] = useState("Manual do sistema");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        router.replace("/");
+        return;
+      }
+
+      try {
+        const profile = await getUserProfile(currentUser.uid);
+        const admin = profile?.role === "admin";
+        setIsAdmin(admin);
+        setSubtitle(`${profile?.name ?? currentUser.displayName ?? "Usuario"} · ${admin ? "Administrador" : "Jogador"}`);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    return () => unsub();
+  }, [router]);
+
   async function handleLogout() {
     await signOut(auth);
     if (typeof window !== "undefined") {
@@ -14,15 +43,25 @@ export default function ManualPage() {
     }
   }
 
+  if (loading) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-4 py-4 md:px-6">
+        <div className="rounded-2xl border border-slate-300 bg-white px-6 py-5 shadow-lg">
+          <p className="text-slate-700">Carregando manual...</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 md:px-6">
-      <AppHeader subtitle="Manual do sistema" onLogout={handleLogout} />
+    <main className="mx-auto w-full max-w-7xl space-y-5 px-4 py-4 md:px-6">
+      <AppHeader subtitle={subtitle} onLogout={handleLogout} />
 
-      <MainMenu />
+      <MainMenu isAdmin={isAdmin} />
 
-      <header className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-3xl font-semibold text-[#10254f]">Manual do sistema</h2>
-        <p className="mt-2 text-sm text-slate-600">
+      <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <h2 className="text-lg font-semibold text-[#10254f]">Manual do sistema</h2>
+        <p className="mt-1 text-sm text-slate-600">
           Guia rapido para operar o Garden Poker com seguranca e consistencia de dados.
         </p>
       </header>
@@ -75,7 +114,8 @@ export default function ManualPage() {
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
               <li>Informe o jogador eliminado.</li>
               <li>Informe quem eliminou (ou deixe vazio se desconhecido).</li>
-              <li>Repita ate restar apenas o vencedor.</li>
+              <li>Use Desfazer ultimo KO se registrar eliminador errado.</li>
+              <li>Quando restarem 2 jogadores, nao ha mais KO.</li>
             </ul>
           </article>
 
