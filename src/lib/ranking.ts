@@ -86,6 +86,11 @@ export function computeChampionshipRanking(matchScores: MatchScore[][]): Ranking
         totalPoints: 0,
         matches: 0,
         knockouts: 0,
+        firstPlaces: 0,
+        secondPlaces: 0,
+        thirdPlaces: 0,
+        trend: "same" as const,
+        trendDelta: 0,
       };
 
       table.set(score.userId, {
@@ -93,6 +98,11 @@ export function computeChampionshipRanking(matchScores: MatchScore[][]): Ranking
         totalPoints: current.totalPoints + score.totalPoints,
         matches: current.matches + 1,
         knockouts: current.knockouts + score.knockouts,
+        firstPlaces: current.firstPlaces + (score.position === 1 ? 1 : 0),
+        secondPlaces: current.secondPlaces + (score.position === 2 ? 1 : 0),
+        thirdPlaces: current.thirdPlaces + (score.position === 3 ? 1 : 0),
+        trend: current.trend,
+        trendDelta: current.trendDelta,
       });
     });
   });
