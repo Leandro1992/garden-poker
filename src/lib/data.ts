@@ -10,6 +10,7 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  type DocumentReference,
   updateDoc,
   writeBatch,
   where,
@@ -31,6 +32,18 @@ const usersCol = collection(db, "users");
 const championshipsCol = collection(db, "championships");
 const matchesCol = collection(db, "matches");
 const eliminationsCol = collection(db, "eliminations");
+
+async function deleteDocumentRefs(refs: DocumentReference[]): Promise<void> {
+  const batchSize = 450;
+
+  for (let index = 0; index < refs.length; index += batchSize) {
+    const batch = writeBatch(db);
+    refs.slice(index, index + batchSize).forEach((ref) => {
+      batch.delete(ref);
+    });
+    await batch.commit();
+  }
+}
 
 function normalizePointsByPosition(input: Record<number, number> | undefined): Record<number, number> {
   const legacyPointsByPosition: Record<number, number> = {
@@ -227,6 +240,34 @@ export async function listChampionships(): Promise<Championship[]> {
   });
 }
 
+export async function deleteChampionship(championshipId: string): Promise<void> {
+  const championshipRef = doc(championshipsCol, championshipId);
+  const rankingSeedCol = collection(db, "rankingSeeds");
+
+  const [championshipSnap, matchesSnap, rankingSeedSnap] = await Promise.all([
+    getDoc(championshipRef),
+    getDocs(query(matchesCol, where("championshipId", "==", championshipId))),
+    getDocs(query(rankingSeedCol, where("championshipId", "==", championshipId))),
+  ]);
+
+  if (!championshipSnap.exists()) {
+    throw new Error("Campeonato nao encontrado.");
+  }
+
+  const eliminationSnaps = await Promise.all(
+    matchesSnap.docs.map((matchDoc) => getDocs(query(eliminationsCol, where("matchId", "==", matchDoc.id)))),
+  );
+
+  const refsToDelete: DocumentReference[] = [
+    ...rankingSeedSnap.docs.map((item) => item.ref),
+    ...eliminationSnaps.flatMap((snap) => snap.docs.map((item) => item.ref)),
+    ...matchesSnap.docs.map((item) => item.ref),
+    championshipRef,
+  ];
+
+  await deleteDocumentRefs(refsToDelete);
+}
+
 export async function createMatch(params: {
   championshipId: string;
   playedAt: string;
@@ -389,17 +430,7 @@ export async function finishMatch(matchId: string): Promise<void> {
 export async function deleteMatch(matchId: string): Promise<void> {
   const eliminationsSnap = await getDocs(query(eliminationsCol, where("matchId", "==", matchId)));
 
-  if (eliminationsSnap.empty) {
-    await deleteDoc(doc(matchesCol, matchId));
-    return;
-  }
-
-  const batch = writeBatch(db);
-  eliminationsSnap.docs.forEach((item) => {
-    batch.delete(item.ref);
-  });
-  batch.delete(doc(matchesCol, matchId));
-  await batch.commit();
+  await deleteDocumentRefs([...eliminationsSnap.docs.map((item) => item.ref), doc(matchesCol, matchId)]);
 }
 
 export async function calculateMatchScores(matchId: string): Promise<MatchScore[]> {

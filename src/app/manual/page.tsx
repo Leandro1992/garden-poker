@@ -62,20 +62,21 @@ export default function ManualPage() {
       <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <h2 className="text-lg font-semibold text-[#10254f]">Manual do sistema</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Guia rapido para operar o Garden Poker com seguranca e consistencia de dados.
+          Guia operacional completo para administrar usuarios, campeonatos, partidas e ranking com seguranca.
         </p>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="grid gap-4 xl:grid-cols-2">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-xl font-semibold text-[#17346b]">1. Como operar</h2>
+          <h2 className="text-xl font-semibold text-[#17346b]">1. Fluxo diario de uso</h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
             <li>Entre com email/senha ou conta Google.</li>
-            <li>No menu, escolha a tela de trabalho: Partidas, Ranking ou Participantes.</li>
-            <li>Selecione o campeonato ativo e a partida que deseja registrar.</li>
-            <li>Registre eliminacoes em ordem real para manter o placar correto.</li>
-            <li>Ao finalizar a rodada, feche a partida para consolidar pontos e ranking.</li>
-            <li>Para excluir partida, use o fluxo de confirmacao em duas etapas para evitar exclusao acidental.</li>
+            <li>Se a conta estiver pendente, aguarde aprovacao de um administrador.</li>
+            <li>Na tela Partidas, selecione o campeonato em uso naquela temporada.</li>
+            <li>Abra uma nova partida com pelo menos dois participantes ativos.</li>
+            <li>Durante a rodada, registre as eliminacoes na ordem real em que acontecerem.</li>
+            <li>Quando restarem dois jogadores, nao registre novos nocautes.</li>
+            <li>Finalize a partida para consolidar a pontuacao e atualizar o ranking anual.</li>
           </ol>
         </article>
 
@@ -83,70 +84,116 @@ export default function ManualPage() {
           <h2 className="text-xl font-semibold text-[#17346b]">2. Permissoes</h2>
           <div className="mt-3 space-y-3 text-sm text-slate-700">
             <p>
-              <strong>Administrador:</strong> cria campeonatos, abre/finaliza/exclui partidas, aprova participantes,
-              altera papeis e importa pontuacao acumulada.
+              <strong>Administrador:</strong> cria e exclui campeonatos, abre/finaliza/exclui partidas, aprova
+              participantes, altera papeis e importa pontuacao acumulada.
             </p>
             <p>
-              <strong>Jogador:</strong> visualiza ranking e partidas, registra eventos permitidos no fluxo da
-              rodada e acompanha resultados.
+              <strong>Jogador:</strong> visualiza ranking e partidas, acompanha resultados e registra apenas eventos
+              permitidos no fluxo da rodada.
             </p>
             <p>
-              Novos cadastros entram como pendentes e precisam de aprovacao de administrador para acesso completo.
+              Acoes sensiveis exigem perfil admin tambem nas regras do Firestore. Nao basta esconder o botao na tela.
             </p>
           </div>
         </article>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-xl font-semibold text-[#17346b]">3. Como registrar informacoes</h2>
-        <div className="mt-3 grid gap-4 md:grid-cols-2">
+        <h2 className="text-xl font-semibold text-[#17346b]">3. Operacao por area</h2>
+        <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-semibold text-[#10254f]">Acesso e aprovacao</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              <li>Cadastros novos entram como jogador pendente.</li>
+              <li>O admin aprova na pagina Participantes ativando o usuario.</li>
+              <li>Emails definidos em NEXT_PUBLIC_ADMIN_EMAILS entram como admin na primeira autenticacao.</li>
+            </ul>
+          </article>
+
+          <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="font-semibold text-[#10254f]">Campeonatos</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+              <li>Somente admins podem criar um novo campeonato anual.</li>
+              <li>Sempre confirme ano e nome antes de iniciar as partidas.</li>
+              <li>A exclusao do campeonato remove partidas, nocautes e carga inicial desse periodo.</li>
+            </ul>
+          </article>
+
           <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="font-semibold text-[#10254f]">Cadastro de partida</h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Selecione data da partida.</li>
+              <li>Selecione a data da rodada.</li>
               <li>Marque pelo menos 2 participantes ativos.</li>
               <li>Abra a partida e confira se ela aparece como aberta no seletor.</li>
+              <li>Use a tela exclusiva da partida quando quiser focar apenas no controle da mesa.</li>
             </ul>
           </article>
 
           <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="font-semibold text-[#10254f]">Registro de eliminacoes</h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Informe o jogador eliminado.</li>
-              <li>Informe quem eliminou (ou deixe vazio se desconhecido).</li>
-              <li>Use Desfazer ultimo KO se registrar eliminador errado.</li>
-              <li>Quando restarem 2 jogadores, nao ha mais KO.</li>
+              <li>Toque ou clique no jogador eliminado na mesa.</li>
+              <li>Informe quem eliminou, ou deixe em branco se o eliminador nao for conhecido.</li>
+              <li>Use Desfazer ultimo KO para corrigir o ultimo registro da rodada.</li>
+              <li>Quando restarem 2 jogadores, o sistema bloqueia novos KOs.</li>
             </ul>
           </article>
 
           <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h3 className="font-semibold text-[#10254f]">Consolidacao do ranking</h3>
+            <h3 className="font-semibold text-[#10254f]">Fechamento e ranking</h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Finalize a partida para confirmar os pontos.</li>
-              <li>Valide o resultado na pagina Ranking.</li>
-              <li>Use importacao inicial apenas para ajustes historicos autorizados.</li>
+              <li>Finalize a partida somente depois de conferir a ordem de eliminacoes.</li>
+              <li>O placar final passa a considerar pontos de posicao e bonus por nocaute.</li>
+              <li>Valide o resultado na tela Ranking para confirmar a atualizacao acumulada.</li>
+              <li>Use a carga inicial apenas para ajustes historicos autorizados.</li>
             </ul>
           </article>
 
           <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h3 className="font-semibold text-[#10254f]">Exclusao de partida (admin)</h3>
+            <h3 className="font-semibold text-[#10254f]">Exclusoes administrativas</h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Selecione a partida no topo da tela de Partidas.</li>
-              <li>Clique em Excluir partida para entrar no modo de confirmacao.</li>
-              <li>Clique em Confirmar exclusao para concluir, ou em Cancelar para abortar.</li>
-              <li>A exclusao remove a partida e todos os nocautes registrados nela.</li>
+              <li>Partida: use o fluxo de confirmacao em duas etapas para remover a rodada e seus nocautes.</li>
+              <li>Campeonato: use Excluir campeonato e confirme a remocao em duas etapas.</li>
+              <li>Ao excluir um campeonato, o ranking desse periodo e a carga inicial relacionada deixam de existir.</li>
+              <li>Jogadores nunca devem compartilhar credenciais para preservar a rastreabilidade.</li>
             </ul>
           </article>
 
           <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <h3 className="font-semibold text-[#10254f]">Boas praticas</h3>
+            <h3 className="font-semibold text-[#10254f]">Participantes e importacao</h3>
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
-              <li>Registre eventos imediatamente durante a rodada.</li>
-              <li>Evite contas compartilhadas para manter rastreabilidade.</li>
-              <li>Nao altere papel ou aprovacao sem validacao do admin responsavel.</li>
+              <li>Aprovacao e troca de papel acontecem na area Participantes.</li>
+              <li>Jogador com historico deve ser inativado em vez de removido da base.</li>
+              <li>Use o arquivo modelo para importacao em lote e revise emails antes de enviar.</li>
             </ul>
           </article>
         </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2">
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold text-[#17346b]">4. Checklist do admin</h2>
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
+            <li>Aprovar participantes pendentes antes do inicio da rodada.</li>
+            <li>Confirmar o campeonato selecionado antes de abrir uma nova partida.</li>
+            <li>Registrar ou supervisionar os nocautes em ordem cronologica.</li>
+            <li>Finalizar a partida apenas apos revisao do historico.</li>
+            <li>Usar exclusoes somente quando for necessario corrigir dados da competicao.</li>
+          </ol>
+        </article>
+
+        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-xl font-semibold text-[#17346b]">5. Suporte operacional</h2>
+          <div className="mt-3 space-y-3 text-sm text-slate-700">
+            <p>Se a tela nao mostrar dados, verifique se o usuario foi aprovado e se o campeonato correto esta selecionado.</p>
+            <p>Se um registro de KO estiver incorreto e ainda for o ultimo evento, use Desfazer ultimo KO antes de continuar.</p>
+            <p>
+              {isAdmin
+                ? "Voce esta vendo o manual com privilegios de administrador, incluindo operacoes de exclusao e aprovacao."
+                : "Seu perfil atual nao mostra a pagina Participantes nem operacoes administrativas sensiveis."}
+            </p>
+          </div>
+        </article>
       </section>
     </main>
   );

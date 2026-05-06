@@ -21,6 +21,7 @@ import {
   calculateMatchScores,
   createChampionship,
   createMatch,
+  deleteChampionship,
   deleteMatch,
   finishMatch,
   getMatchById,
@@ -66,6 +67,7 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
   const [eliminations, setEliminations] = useState<EliminationEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [flash, setFlash] = useState<Flash>(null);
+  const [isDeleteChampionshipConfirmStep, setIsDeleteChampionshipConfirmStep] = useState(false);
   const [isDeleteMatchConfirmStep, setIsDeleteMatchConfirmStep] = useState(false);
   const [isFinishMatchConfirmStep, setIsFinishMatchConfirmStep] = useState(false);
 
@@ -271,6 +273,7 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
     setIsEliminationModalOpen(false);
     setEliminationModalPlayerId("");
     setEliminationModalByUserId("");
+    setIsDeleteChampionshipConfirmStep(false);
     setFlash(null);
   }, []);
 
@@ -288,11 +291,19 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
       setUsers(usersSnap);
       setChampionships(championshipsSnap);
 
-      if (!selectedChampionshipId && championshipsSnap.length > 0) {
-        setSelectedChampionshipId(championshipsSnap[0].id);
-      }
+      setSelectedChampionshipId((currentSelected) => {
+        if (championshipsSnap.length === 0) {
+          return "";
+        }
+
+        if (currentSelected && championshipsSnap.some((item) => item.id === currentSelected)) {
+          return currentSelected;
+        }
+
+        return championshipsSnap[0].id;
+      });
     },
-    [selectedChampionshipId],
+    [],
   );
 
   const refreshChampionshipData = useCallback(
@@ -481,6 +492,10 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
   }, [selectedMatchId, refreshMatchData, usuarioPendente]);
 
   useEffect(() => {
+    setIsDeleteChampionshipConfirmStep(false);
+  }, [selectedChampionshipId]);
+
+  useEffect(() => {
     setIsDeleteMatchConfirmStep(false);
     setIsFinishMatchConfirmStep(false);
   }, [selectedMatchId]);
@@ -602,6 +617,34 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
       setSelectedChampionshipId(id);
       setShowCreateChampionshipForm(false);
       setFlash({ type: "success", message: "Campeonato criado com sucesso." });
+    } catch (error) {
+      showError(error);
+    }
+  }
+
+  async function handleDeleteChampionship() {
+    if (!profile || profile.role !== "admin" || !selectedChampionshipId || isExclusiveMatchView) {
+      return;
+    }
+
+    if (!isDeleteChampionshipConfirmStep) {
+      setIsDeleteChampionshipConfirmStep(true);
+      setIsDeleteMatchConfirmStep(false);
+      setIsFinishMatchConfirmStep(false);
+      return;
+    }
+
+    try {
+      await deleteChampionship(selectedChampionshipId);
+      setSelectedMatchId("");
+      setPartidasMode(null);
+      setShowCreateChampionshipForm(false);
+      await refreshCoreData(profile.id);
+      setIsDeleteChampionshipConfirmStep(false);
+      setFlash({
+        type: "success",
+        message: "Campeonato excluido com sucesso. Partidas, nocautes e carga inicial vinculados foram removidos.",
+      });
     } catch (error) {
       showError(error);
     }
@@ -1084,13 +1127,26 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold text-[#10254f]">Campeonatos</h2>
               {isAdmin ? (
-                <button
-                  type="button"
-                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-                  onClick={() => setShowCreateChampionshipForm((prev) => !prev)}
-                >
-                  {showCreateChampionshipForm ? "Cancelar" : "Novo campeonato"}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    onClick={() => {
+                      setShowCreateChampionshipForm((prev) => !prev);
+                      setIsDeleteChampionshipConfirmStep(false);
+                    }}
+                  >
+                    {showCreateChampionshipForm ? "Cancelar" : "Novo campeonato"}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={handleDeleteChampionship}
+                    disabled={!selectedChampionshipId}
+                  >
+                    {isDeleteChampionshipConfirmStep ? "Confirmar exclusao" : "Excluir campeonato"}
+                  </button>
+                </div>
               ) : null}
             </div>
 
@@ -1140,6 +1196,22 @@ export function PokerApp({ view = "partidas", exclusiveMatchId }: { view?: Poker
                   Criar campeonato
                 </button>
               </form>
+            ) : null}
+
+            {isAdmin && isDeleteChampionshipConfirmStep ? (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                <p className="font-medium">Confirmacao necessaria</p>
+                <p className="mt-1">
+                  Clique em Confirmar exclusao para remover o campeonato selecionado, todas as partidas, os nocautes e a carga inicial importada.
+                </p>
+                <button
+                  type="button"
+                  className="mt-2 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-red-700 transition hover:bg-red-100"
+                  onClick={() => setIsDeleteChampionshipConfirmStep(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
             ) : null}
           </section>
           ) : null}

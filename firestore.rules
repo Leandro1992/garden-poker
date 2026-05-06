@@ -26,8 +26,7 @@ service cloud.firestore {
 
     match /championships/{championshipId} {
       allow read: if isActiveUser();
-      allow create, update: if isAdmin();
-      allow delete: if false;
+      allow create, update, delete: if isAdmin();
     }
 
     match /matches/{matchId} {
@@ -45,7 +44,7 @@ service cloud.firestore {
     match /rankingSeeds/{seedId} {
       allow read: if isActiveUser();
       allow create, update: if isAdmin();
-      allow delete: if false;
+      allow delete: if isAdmin();
     }
   }
 }
