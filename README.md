@@ -14,12 +14,32 @@ Aplicacao web para registrar partidas presenciais de poker e acompanhar ranking 
 - Controle por papel (`admin` e `player`).
 - Fluxo de aprovacao: novo jogador entra como pendente e aguarda aprovacao do admin.
 - Cadastro de campeonato anual.
+- Exclusao de campeonato por admin com limpeza de partidas, eliminacoes e seeds de ranking vinculados.
 - Abertura de partidas por campeonato.
+- Exclusao de partidas por admin com confirmacao em duas etapas.
 - Selecao de participantes presentes na rodada.
 - Registro cronologico de eliminacoes.
 - Bonus de nocaute (+2 pontos por eliminacao).
 - Ranking da noite (partida) e ranking do ano (campeonato).
 - Importacao de pontuacao inicial para campeonato em andamento.
+
+## Operacao do sistema
+1. O usuario entra com email/senha ou Google.
+2. Jogadores novos permanecem pendentes ate aprovacao de um admin.
+3. O admin seleciona o campeonato ativo na tela Partidas.
+4. O admin abre a partida escolhendo data e participantes ativos.
+5. Durante a rodada, as eliminacoes sao registradas na ordem real.
+6. Ao final, o admin finaliza a partida para consolidar o ranking.
+7. Exclusoes de partida e campeonato exigem confirmacao em duas etapas e sao restritas a admins.
+
+## Perfis e permissoes
+- `admin`: aprova usuarios, altera perfis, cria e exclui campeonatos, abre/finaliza/exclui partidas e importa carga inicial.
+- `player`: visualiza dados liberados, acompanha ranking e participa do fluxo operacional permitido.
+
+## Excluir campeonato
+- Disponivel apenas para `admin` na tela Partidas.
+- Remove o campeonato selecionado, todas as partidas vinculadas, os registros de eliminacao e a carga inicial de ranking daquele periodo.
+- A operacao exige confirmacao explicita na interface e tambem e protegida nas regras do Firestore.
 
 ## Configuracao
 1. Copie `.env.example` para `.env.local`.
